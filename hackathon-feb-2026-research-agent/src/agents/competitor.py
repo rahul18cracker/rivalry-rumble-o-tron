@@ -1,8 +1,10 @@
 """Competitor Agent - analyzes competitive positioning using Tavily search."""
 
-from typing import Any, TypedDict
+from typing import Any, Annotated, TypedDict
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..config import get_config
@@ -17,10 +19,8 @@ from ..tools.tavily_tools import (
 
 class CompetitorState(TypedDict):
     """State for competitor agent."""
-    messages: list
+    messages: Annotated[list, add_messages]
     companies: list[str]
-    competitive_data: list[dict]
-    analysis: str
 
 
 # Tools available to the competitor agent
@@ -114,16 +114,14 @@ async def run_competitor_agent(task: str, companies: list[str] | None = None) ->
         company_info = ""
 
     messages = [
-        {"role": "system", "content": COMPETITOR_SYSTEM_PROMPT},
-        {"role": "user", "content": f"{task}{company_info}"},
+        SystemMessage(content=COMPETITOR_SYSTEM_PROMPT),
+        HumanMessage(content=f"{task}{company_info}"),
     ]
 
     # Run the agent
     result = await agent.ainvoke({
         "messages": messages,
         "companies": companies or [],
-        "competitive_data": [],
-        "analysis": "",
     })
 
     # Extract the final response

@@ -1,8 +1,10 @@
 """Financial Agent - analyzes company financial data using yfinance."""
 
-from typing import Any, TypedDict
+from typing import Any, Annotated
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..config import get_config
@@ -14,13 +16,12 @@ from ..tools.yfinance_tools import (
 )
 
 
+from typing import TypedDict
+
 class FinancialState(TypedDict):
     """State for financial agent."""
-    messages: list
-    companies: list[str]
+    messages: Annotated[list, add_messages]
     tickers: list[str]
-    financial_data: list[dict]
-    analysis: str
 
 
 # Tools available to the financial agent
@@ -113,17 +114,14 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
         ticker_info = ""
 
     messages = [
-        {"role": "system", "content": FINANCIAL_SYSTEM_PROMPT},
-        {"role": "user", "content": f"{task}{ticker_info}"},
+        SystemMessage(content=FINANCIAL_SYSTEM_PROMPT),
+        HumanMessage(content=f"{task}{ticker_info}"),
     ]
 
     # Run the agent
     result = await agent.ainvoke({
         "messages": messages,
-        "companies": [],
         "tickers": tickers or [],
-        "financial_data": [],
-        "analysis": "",
     })
 
     # Extract the final response

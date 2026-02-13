@@ -3,6 +3,10 @@
 import os
 from typing import Any
 from langchain_core.tools import tool
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Lazy import to avoid issues if tavily not installed
 _tavily_client = None
