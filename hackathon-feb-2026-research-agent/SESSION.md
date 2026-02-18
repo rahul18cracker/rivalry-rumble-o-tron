@@ -4,7 +4,7 @@
 
 ### What Was Accomplished
 
-1. **Decision Tree Visualization** — Graphviz DOT graph rendered via `st.graphviz_chart()` in the Behind the Scenes expander, showing full pipeline: User Query → Parse → parallel Number Cruncher + Street Scout (with every tool call) → Verdict
+1. **Decision Tree Visualization** — Plain-text tree rendered via `st.code()` in the Behind the Scenes expander, showing full pipeline: User Query → Parse → parallel Number Cruncher + Street Scout (with every tool call listed) → Verdict. Initially built as Graphviz DOT but replaced with text tree for readability.
 2. **Tool Call Extraction** — `_extract_tool_calls()` function in both sub-agents walks LangGraph message history, extracts tool name, arguments, and result preview from AIMessage/ToolMessage pairs
 3. **Manager Return Enhancement** — `extract_tool_call_summary()` helper passes tool call logs from sub-agents through to the UI metadata
 4. **Post-Hackathon Observability Plan** — Comprehensive 5-section plan added to `docs/post-hackathon-roadmap.md` covering LangSmith/LangFuse, error classification, cost monitoring, and quality scoring
@@ -29,13 +29,13 @@
 | Progress Indicators | ✅ | 4-stage pipeline with funky quips |
 | Example Query Cards | ✅ | 3 cards with descriptions |
 | Behind the Scenes | ✅ | Collapsible agent activity log |
-| Decision Tree | ✅ | Graphviz DOT in Behind the Scenes |
+| Decision Tree | ✅ | Text tree in Behind the Scenes (st.code) |
 | Tool Call Extraction | ✅ | Both sub-agents extract tool logs |
 | Brand / Theme | ✅ | "Rivalry Rumble-o-Tron" throughout |
 
 ### Skills Learned
 
-See [docs/skills-learned.md](docs/skills-learned.md) for detailed technical learnings (10 items).
+See [docs/skills-learned.md](docs/skills-learned.md) for detailed technical learnings (12 items).
 
 ### Quick Resume Commands
 
@@ -67,6 +67,8 @@ streamlit run ui/app.py
 ### Git Log
 
 ```
+bd83ce9 Replace Graphviz decision tree with readable text tree
+1270d33 Add observability roadmap and update session context
 5122e0c Add decision tree visualization to Behind the Scenes
 60023d9 Add session context and update debug guides with learnings
 a9875a8 Add Behind the Scenes agent activity log
@@ -96,7 +98,7 @@ hackathon-feb-2026-research-agent/
 │   ├── prompts/
 │   ├── report/
 │   │   ├── generator.py       # LLM-powered report synthesis
-│   │   └── decision_tree.py   # Graphviz DOT generation
+│   │   └── decision_tree.py   # Text tree generation for Behind the Scenes
 │   ├── config.py
 │   └── main.py
 ├── ui/

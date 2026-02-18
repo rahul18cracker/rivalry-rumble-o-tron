@@ -215,3 +215,55 @@ async def run_manager_agent(query, callback) -> dict:
 ```
 
 **Lesson**: Design agent entry points to return structured dicts from the start, even if you only need one field today. Adding metadata later requires changing every caller. A dict is extensible without breaking the contract.
+
+---
+
+## 11. Extracting Tool Calls from LangGraph Message History
+
+**Problem**: Needed to show which tools each sub-agent called (with arguments) in the UI, but LangGraph doesn't expose a built-in tool call log.
+
+**Insight**: LangGraph already records everything in the messages list. `AIMessage` objects have a `.tool_calls` attribute (list of `{id, name, args}`), and each `ToolMessage` has a `.tool_call_id` that matches back to the call.
+
+**Fix**: Walk the message list, match AIMessage tool calls to ToolMessage responses by ID:
+
+```python
+def _extract_tool_calls(messages):
+    pending = {}
+    tool_calls = []
+    for msg in messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                pending[tc["id"]] = {"tool": tc["name"], "args": tc["args"]}
+        if msg.__class__.__name__ == "ToolMessage":
+            call_id = getattr(msg, "tool_call_id", None)
+            if call_id and call_id in pending:
+                info = pending.pop(call_id)
+                tool_calls.append({...info, "result_preview": msg.content[:200]})
+    return tool_calls
+```
+
+**Lesson**: Don't add custom logging wrappers around tools when LangGraph already captures the data. Mine the message history instead.
+
+---
+
+## 12. st.code() Over st.graphviz_chart() for Tree Visualizations
+
+**Problem**: A Graphviz DOT decision tree rendered via `st.graphviz_chart()` became unreadable when the graph had 10+ nodes. The chart scales the entire SVG to fit the container width, making node labels tiny.
+
+**Root Cause**: `st.graphviz_chart(use_container_width=True)` renders as a fixed-height SVG. Horizontal graphs spread nodes wide; vertical graphs grow tall. Either way, with many leaf nodes the labels shrink below readable size. The fullscreen button helps but is bad demo UX.
+
+**Fix**: Replace with a plain-text tree using box-drawing characters, rendered in `st.code(text, language=None)`:
+
+```
+🔷 User Query
+│
+├── 📋 Parse → DataDog, Dynatrace  ·  Tickers: DDOG, DT
+│
+├── 📊 Number Cruncher — 3 tool calls
+│   ├── 🔧 Company Comparison  (tickers=DDOG, DT)
+│   └── 🔧 Historical Revenue  (ticker=DDOG)
+│
+└── 📝 Verdict → Final Report
+```
+
+**Lesson**: For demo UIs, simple text with good formatting beats fancy graph visualizations. `st.code()` preserves monospace alignment, supports emojis, and scales naturally. Save Graphviz for offline/exported diagrams where the viewer can zoom.
