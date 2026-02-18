@@ -1,96 +1,83 @@
-"""Decision tree visualization — generates Graphviz DOT from agent metadata."""
-
-import json
-
-
-def _escape(text: str) -> str:
-    """Escape special chars for DOT labels."""
-    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+"""Decision tree visualization — generates a readable text tree from agent metadata."""
 
 
 def _short_args(args: dict) -> str:
-    """Format tool call args into a short single-line summary."""
+    """Format tool call args into a compact summary."""
     parts = []
     for k, v in args.items():
         if isinstance(v, list):
             v = ", ".join(str(i) for i in v)
         v = str(v)
-        if len(v) > 40:
-            v = v[:37] + "..."
+        if len(v) > 50:
+            v = v[:47] + "..."
         parts.append(f"{k}={v}")
-    return ", ".join(parts)
+    return "  ".join(parts)
 
 
-def build_decision_tree_dot(metadata: dict) -> str:
-    """Build a Graphviz DOT string from agent run metadata.
+def _friendly_tool_name(tool: str) -> str:
+    """Convert snake_case tool name to a readable label."""
+    mapping = {
+        "get_company_financials": "Company Financials",
+        "get_historical_revenue": "Historical Revenue",
+        "get_company_comparison": "Company Comparison",
+        "search_company_info": "Company Info Search",
+        "search_competitive_analysis": "Competitive Analysis",
+        "search_product_info": "Product Info Search",
+        "search_market_trends": "Market Trends Search",
+    }
+    return mapping.get(tool, tool.replace("_", " ").title())
+
+
+def build_decision_tree_markdown(metadata: dict) -> str:
+    """Build a readable plain-text tree from agent run metadata.
 
     Args:
         metadata: dict with keys companies, tickers,
                   financial_tool_calls, competitor_tool_calls.
 
     Returns:
-        DOT-language string suitable for st.graphviz_chart().
+        Plain-text string for rendering inside st.code().
     """
     companies = metadata.get("companies", [])
     tickers = metadata.get("tickers", [])
     fin_calls = metadata.get("financial_tool_calls", [])
     comp_calls = metadata.get("competitor_tool_calls", [])
 
-    lines = [
-        'digraph decision_tree {',
-        '  rankdir=TB;',
-        '  bgcolor="transparent";',
-        '  node [fontname="Helvetica" fontsize=11 style=filled];',
-        '  edge [fontname="Helvetica" fontsize=9 color="#888888"];',
-        '',
-        '  // Root',
-        '  query [label="User Query" shape=diamond fillcolor="#FFD54F" fontcolor="#333333"];',
-        '',
-        '  // Parse stage',
-        f'  parse [label="Parse\\n{_escape(", ".join(companies))}\\nTickers: {_escape(", ".join(tickers))}" '
-        f'shape=box fillcolor="#E3F2FD" fontcolor="#1565C0"];',
-        '  query -> parse [label="analyze"];',
-        '',
-    ]
+    lines = []
 
-    # Financial agent branch
-    lines.append('  // Number Cruncher')
-    lines.append(f'  financial [label="📊 Number Cruncher\\n{len(fin_calls)} tool calls" '
-                 f'shape=box fillcolor="#E8F5E9" fontcolor="#2E7D32"];')
-    lines.append('  parse -> financial [label="parallel"];')
+    # Root
+    lines.append("🔷 User Query")
+    lines.append("│")
 
+    # Parse
+    lines.append(f"├── 📋 Parse → {', '.join(companies)}  ·  Tickers: {', '.join(tickers)}")
+    lines.append("│")
+
+    # Parallel split
+    lines.append("├── ⚡ parallel execution")
+    lines.append("│")
+
+    # Number Cruncher
+    lines.append(f"├── 📊 Number Cruncher — {len(fin_calls)} tool call{'s' if len(fin_calls) != 1 else ''}")
     for i, tc in enumerate(fin_calls):
-        node_id = f"fin_tc_{i}"
-        tool_name = tc.get("tool", "?")
+        is_last = (i == len(fin_calls) - 1)
+        prefix = "│   └── " if is_last else "│   ├── "
+        name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))
-        label = f"{tool_name}\\n{_escape(args_str)}"
-        lines.append(f'  {node_id} [label="{label}" shape=ellipse fillcolor="#C8E6C9" fontcolor="#1B5E20"];')
-        lines.append(f'  financial -> {node_id};')
+        lines.append(f"{prefix}🔧 {name}  ({args_str})")
+    lines.append("│")
 
-    lines.append('')
-
-    # Competitor agent branch
-    lines.append('  // Street Scout')
-    lines.append(f'  competitor [label="🔍 Street Scout\\n{len(comp_calls)} tool calls" '
-                 f'shape=box fillcolor="#FFF3E0" fontcolor="#E65100"];')
-    lines.append('  parse -> competitor [label="parallel"];')
-
+    # Street Scout
+    lines.append(f"├── 🔍 Street Scout — {len(comp_calls)} tool call{'s' if len(comp_calls) != 1 else ''}")
     for i, tc in enumerate(comp_calls):
-        node_id = f"comp_tc_{i}"
-        tool_name = tc.get("tool", "?")
+        is_last = (i == len(comp_calls) - 1)
+        prefix = "│   └── " if is_last else "│   ├── "
+        name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))
-        label = f"{tool_name}\\n{_escape(args_str)}"
-        lines.append(f'  {node_id} [label="{label}" shape=ellipse fillcolor="#FFE0B2" fontcolor="#BF360C"];')
-        lines.append(f'  competitor -> {node_id};')
+        lines.append(f"{prefix}🔧 {name}  ({args_str})")
+    lines.append("│")
 
-    lines.append('')
+    # Verdict
+    lines.append("└── 📝 Verdict → Final Report")
 
-    # Synthesis
-    lines.append('  // Verdict')
-    lines.append('  verdict [label="📝 Verdict\\nFinal Report" shape=box fillcolor="#F3E5F5" fontcolor="#6A1B9A"];')
-    lines.append('  financial -> verdict [label="results"];')
-    lines.append('  competitor -> verdict [label="results"];')
-
-    lines.append('}')
-
-    return '\n'.join(lines)
+    return "\n".join(lines)

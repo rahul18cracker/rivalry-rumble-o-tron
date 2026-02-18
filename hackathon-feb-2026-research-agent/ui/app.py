@@ -13,7 +13,7 @@ import threading
 import traceback
 from src.config import get_config
 from src.agents.manager import run_manager_agent, extract_tool_call_summary
-from src.report.decision_tree import build_decision_tree_dot
+from src.report.decision_tree import build_decision_tree_markdown
 
 
 # Page config
@@ -183,8 +183,8 @@ def display_chat_history():
                     if fin_tc or comp_tc:
                         st.divider()
                         st.markdown("**🌳 Decision Tree**")
-                        dot_str = build_decision_tree_dot(meta)
-                        st.graphviz_chart(dot_str, use_container_width=True)
+                        tree_md = build_decision_tree_markdown(meta)
+                        st.code(tree_md, language=None)
 
 
 def render_stage_text(stage_states: dict, tick: int = 0) -> str:
