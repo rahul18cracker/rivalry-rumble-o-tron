@@ -39,13 +39,36 @@ st.markdown("""
 
 # Pipeline stage definitions
 PIPELINE_STAGES = [
-    {"key": "parse", "label": "Analyzing Query", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
-    {"key": "financial", "label": "Financial Agent", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
-    {"key": "competitor", "label": "Competitor Agent", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
-    {"key": "synthesize", "label": "Synthesizing Report", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
+    {"key": "parse", "label": "Reading the matchup card", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
+    {"key": "financial", "label": "Number Cruncher", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
+    {"key": "competitor", "label": "Street Scout", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
+    {"key": "synthesize", "label": "Writing the verdict", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
 ]
 
 STAGE_PROGRESS = {"parse": 0.15, "financial": 0.50, "competitor": 0.50, "synthesize": 0.85}
+
+# Funky status quips shown while each stage is running (cycled by poll tick)
+STAGE_QUIPS = {
+    "parse": [
+        "Sizing up the contenders...",
+        "Reading the tale of the tape...",
+    ],
+    "financial": [
+        "Munching on earnings reports...",
+        "Digging through balance sheets...",
+        "Crunching the hard numbers...",
+    ],
+    "competitor": [
+        "Scouting the competition...",
+        "Reading the industry gossip...",
+        "Gathering street intel...",
+    ],
+    "synthesize": [
+        "Brewing the final verdict...",
+        "Polishing the championship belt...",
+        "Writing up the scorecards...",
+    ],
+}
 
 
 def init_session_state():
@@ -126,23 +149,26 @@ def display_chat_history():
             st.markdown(message["content"])
 
 
-def render_stage_text(stage_states: dict) -> str:
-    """Render stage status as markdown text."""
+def render_stage_text(stage_states: dict, tick: int = 0) -> str:
+    """Render stage status as markdown text with funky quips."""
     lines = []
     for stage_def in PIPELINE_STAGES:
         key = stage_def["key"]
         state = stage_states.get(key, {"status": "pending", "detail": ""})
         status = state["status"]
-        detail = state.get("detail", "")
 
         if status == "done":
             icon = stage_def["icon_done"]
+            detail_str = ""
         elif status == "running":
             icon = stage_def["icon_running"]
+            quips = STAGE_QUIPS.get(key, [])
+            quip = quips[tick % len(quips)] if quips else ""
+            detail_str = f" — *{quip}*" if quip else ""
         else:
             icon = stage_def["icon_pending"]
+            detail_str = ""
 
-        detail_str = f" — {detail}" if detail else ""
         lines.append(f"{icon} **{stage_def['label']}**{detail_str}")
 
     return "\n\n".join(lines)
@@ -217,11 +243,13 @@ def process_query(query: str):
             thread.start()
 
             # Poll the thread, updating Streamlit UI from the main thread
+            tick = 0
             while thread.is_alive():
-                thread.join(timeout=1.0)
+                thread.join(timeout=1.5)
+                tick += 1
 
                 # Update UI from main thread (safe for Streamlit)
-                stages_placeholder.markdown(render_stage_text(stage_states))
+                stages_placeholder.markdown(render_stage_text(stage_states, tick))
                 progress_bar.progress(compute_progress(stage_states))
                 elapsed = time.time() - start_time
                 elapsed_placeholder.caption(f"{int(elapsed)}s elapsed")
