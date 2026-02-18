@@ -17,6 +17,11 @@ Streamlit UI → Manager Agent → [Financial Agent, Competitor Agent] → Markd
 - Basic financials (yfinance)
 - Web research (Tavily)
 - Markdown report output
+- Parallel sub-agent execution (asyncio.gather)
+- Progress indicators with rotating quips
+- "Behind the Scenes" expander with agent stats
+- Decision tree visualization (Graphviz DOT via st.graphviz_chart)
+- Tool call extraction from LangGraph message history
 
 ---
 
@@ -53,6 +58,138 @@ Streamlit UI → Manager Agent → [Financial Agent, Competitor Agent] → Markd
 └── docs/
     └── setup.md                   # Setup guide
 ```
+
+### Observability & Tracing
+<!-- MARKER: OBSERVABILITY -->
+
+**Hackathon baseline:** The decision tree visualization (Graphviz DOT) provides a post-run
+snapshot of what each agent did: which tools were called, with what arguments, and the
+pipeline flow (Parse → parallel agents → Verdict). This is rendered inline in the Streamlit
+"Behind the Scenes" expander.
+
+**What's missing for production:**
+
+#### 1. LangSmith / LangFuse Integration (P0)
+
+LangGraph has native LangSmith support. Setting `LANGCHAIN_TRACING_V2=true` and
+`LANGCHAIN_API_KEY` gives full traces with zero code changes:
+
+```
+Every LLM call:
+  - Input/output tokens
+  - Latency (time to first token, total)
+  - Model parameters (temperature, model name)
+  - Full prompt and response content
+
+Every tool call:
+  - Arguments and return values
+  - Execution time
+  - Success/failure
+
+Graph-level:
+  - Node execution order and timing
+  - State transitions
+  - Total run cost
+```
+
+**Alternative:** LangFuse is open-source and self-hostable. Better for teams that can't
+send data to external SaaS. Same trace data, different backend.
+
+**Implementation:**
+- [ ] Add `LANGCHAIN_TRACING_V2=true` to config
+- [ ] Set up LangSmith project (or deploy LangFuse)
+- [ ] Add trace IDs to report metadata for debugging
+- [ ] Link Streamlit "Behind the Scenes" to LangSmith trace URL
+
+#### 2. Error Classification & Circuit Breakers (P0)
+
+Current behavior: a single API failure (Tavily timeout, yfinance rate limit) kills the
+entire run and shows a generic error to the user.
+
+**Target behavior:**
+```
+Error Classes:
+  Transient → Retry with exponential backoff (3 attempts)
+  Rate Limit → Back off, retry after delay
+  Permanent → Skip that data source, produce partial report
+  Critical → Fail with clear user-facing message
+
+Circuit Breaker per tool:
+  CLOSED (normal) → errors < threshold → continue
+  OPEN (tripped) → skip tool for N seconds → HALF-OPEN
+  HALF-OPEN → try one request → CLOSED if success, OPEN if fail
+```
+
+**Implementation:**
+- [ ] Classify errors in each tool (transient vs permanent)
+- [ ] Add retry decorator with exponential backoff (`tenacity` library)
+- [ ] Implement circuit breaker pattern per tool/API
+- [ ] Generate partial reports when some data sources fail
+- [ ] Surface data source health in "Behind the Scenes"
+
+#### 3. Cost Monitoring (P1)
+
+Claude API costs accumulate, especially with the synthesis step that receives full
+financial + competitor text. Track and control this.
+
+**Metrics to track:**
+- Input/output tokens per agent per run
+- Total cost per query (using Anthropic pricing)
+- Cost breakdown: parse vs. financial vs. competitor vs. synthesis
+- Running average cost per query
+
+**Implementation:**
+- [ ] Extract token counts from LLM responses (`response.usage`)
+- [ ] Store per-run cost data in SQLite or append-only JSON
+- [ ] Add cost summary to "Behind the Scenes" expander
+- [ ] Set configurable cost ceiling per query (fail-safe)
+- [ ] Weekly cost digest (if monitoring mode is added)
+
+#### 4. Quality Scoring (P2)
+
+The hardest problem: how do you know if a report is *good*?
+
+**Approaches (in order of implementation ease):**
+
+1. **User feedback** — Thumbs up/down buttons after report. Simplest signal, highest
+   value. Store rating + query for later analysis.
+
+2. **Completeness check** — Automated: does the report contain all expected sections?
+   Are financial tables populated? Are sources cited? This is rule-based, not LLM-based.
+
+3. **LLM-as-judge** — Send the report to a second LLM call with a scoring rubric:
+   factual accuracy, completeness, balance, source quality. Expensive but powerful.
+
+4. **Benchmark comparison** — Maintain a set of "gold standard" reports for known
+   queries. Compare new outputs against them using semantic similarity. Best for
+   regression detection.
+
+**Implementation:**
+- [ ] Add thumbs up/down to report UI (store in session + optional persistence)
+- [ ] Implement completeness checker (section presence, table data, source count)
+- [ ] Design LLM-as-judge prompt and scoring rubric
+- [ ] Build benchmark set (5-10 gold reports for common queries)
+
+#### 5. Files to Create/Update
+
+```
+├── src/
+│   ├── observability/
+│   │   ├── __init__.py
+│   │   ├── tracer.py              # LangSmith/LangFuse setup
+│   │   ├── cost_tracker.py        # Token/cost accounting
+│   │   └── quality.py             # Completeness check + LLM judge
+│   ├── utils/
+│   │   ├── retry.py               # Retry with backoff (tenacity)
+│   │   └── circuit_breaker.py     # Per-tool circuit breaker
+│   └── report/
+│       └── decision_tree.py       # Already exists (hackathon)
+├── data/
+│   ├── benchmarks/                # Gold standard reports
+│   └── cost_log.jsonl             # Append-only cost data
+```
+
+<!-- END MARKER: OBSERVABILITY -->
 
 ---
 
@@ -478,7 +615,7 @@ class ConfluenceExporter(ReportExporter): ...
 
 | Version | Timeline | Key Features |
 |---------|----------|--------------|
-| 0.1.0 | Hackathon | Initial POC - 2 agents, basic UI |
+| 0.1.0 | Hackathon | 2 agents, parallel execution, progress UI, decision tree |
 | 0.2.0 | +2 weeks | Stabilization, error handling, caching |
 | 0.3.0 | +1 month | Evaluators, critique agent |
 | 0.4.0 | +2 months | Additional data sources, scope expansion |
@@ -493,6 +630,7 @@ When implementing features, search for these markers in this document:
 
 | Marker | Section | Purpose |
 |--------|---------|---------|
+| `OBSERVABILITY` | Phase 1 | Tracing, errors, cost, quality scoring |
 | `EVALUATOR_SYSTEM` | Phase 2 | Quality evaluation architecture |
 | `CRITIQUE_AGENT` | Phase 2 | Critique agent design |
 | `DATA_SOURCES` | Phase 3 | Additional data source list |

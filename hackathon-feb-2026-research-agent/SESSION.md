@@ -1,20 +1,19 @@
 # Rivalry Rumble-o-Tron - Session Context
 
-## Last Session: 2026-02-17 (Session 2 — UI Refinement)
+## Last Session: 2026-02-17 (Session 3 — Decision Tree & Observability Plan)
 
 ### What Was Accomplished
 
-1. **Rebranded to "Rivalry Rumble-o-Tron"** — New name, boxing glove logo, themed copy throughout
-2. **Progress Indicators** — 4-stage pipeline with progress bar, elapsed timer, rotating funky quips
-3. **Streamlit + Async Fix** — Solved NoSessionContext via worker thread + main thread polling pattern
-4. **Example Query Cards** — 3 matchup cards with descriptions and Run buttons
-5. **Behind the Scenes Expander** — Post-run collapsible showing agent metadata (companies, tickers, LLM round-trips)
-6. **Parallel Agent Execution** — Financial + Competitor agents run concurrently via asyncio.gather
+1. **Decision Tree Visualization** — Graphviz DOT graph rendered via `st.graphviz_chart()` in the Behind the Scenes expander, showing full pipeline: User Query → Parse → parallel Number Cruncher + Street Scout (with every tool call) → Verdict
+2. **Tool Call Extraction** — `_extract_tool_calls()` function in both sub-agents walks LangGraph message history, extracts tool name, arguments, and result preview from AIMessage/ToolMessage pairs
+3. **Manager Return Enhancement** — `extract_tool_call_summary()` helper passes tool call logs from sub-agents through to the UI metadata
+4. **Post-Hackathon Observability Plan** — Comprehensive 5-section plan added to `docs/post-hackathon-roadmap.md` covering LangSmith/LangFuse, error classification, cost monitoring, and quality scoring
 
 ### Previous Sessions
 
 - **2026-02-13**: Full project implementation, all agents validated, orchestration tested
 - **2026-02-17 (Session 1)**: Progress indicators, async fix, skills-learned doc
+- **2026-02-17 (Session 2)**: Rebranded to "Rivalry Rumble-o-Tron", example query cards, funky quips, Behind the Scenes expander, parallel agent execution
 
 ### Validation Results
 
@@ -30,6 +29,8 @@
 | Progress Indicators | ✅ | 4-stage pipeline with funky quips |
 | Example Query Cards | ✅ | 3 cards with descriptions |
 | Behind the Scenes | ✅ | Collapsible agent activity log |
+| Decision Tree | ✅ | Graphviz DOT in Behind the Scenes |
+| Tool Call Extraction | ✅ | Both sub-agents extract tool logs |
 | Brand / Theme | ✅ | "Rivalry Rumble-o-Tron" throughout |
 
 ### Skills Learned
@@ -57,14 +58,17 @@ streamlit run ui/app.py
 1. [x] Test Streamlit UI end-to-end
 2. [x] Add progress indicators to UI
 3. [x] UI refinement (brand, cards, quips, activity log)
-4. [ ] Observability / decision tree visualization
+4. [x] Observability / decision tree visualization
 5. [ ] Test error handling (missing keys, API failures)
 6. [ ] Add caching for API responses
 7. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
+8. [ ] Production observability (LangSmith, cost tracking, quality scoring — see post-hackathon-roadmap.md)
 
 ### Git Log
 
 ```
+5122e0c Add decision tree visualization to Behind the Scenes
+60023d9 Add session context and update debug guides with learnings
 a9875a8 Add Behind the Scenes agent activity log
 099349d Add funky status quips and rename pipeline stages
 518044e Add example query cards with descriptions
@@ -91,6 +95,8 @@ hackathon-feb-2026-research-agent/
 │   │   └── tavily_tools.py
 │   ├── prompts/
 │   ├── report/
+│   │   ├── generator.py       # LLM-powered report synthesis
+│   │   └── decision_tree.py   # Graphviz DOT generation
 │   ├── config.py
 │   └── main.py
 ├── ui/
