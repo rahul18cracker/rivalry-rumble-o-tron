@@ -32,6 +32,35 @@ FINANCIAL_TOOLS = [
 ]
 
 
+def _extract_tool_calls(messages: list) -> list[dict]:
+    """Extract tool call details from LangGraph message history."""
+    tool_calls = []
+    # Build a map of tool_call_id → tool call info from AIMessages
+    pending = {}
+    for msg in messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                pending[tc["id"]] = {
+                    "tool": tc["name"],
+                    "args": tc["args"],
+                }
+        # Match ToolMessage responses back to their calls
+        if msg.__class__.__name__ == "ToolMessage":
+            call_id = getattr(msg, "tool_call_id", None)
+            if call_id and call_id in pending:
+                info = pending.pop(call_id)
+                # Summarise the result to keep metadata lean
+                content = msg.content if hasattr(msg, "content") else str(msg)
+                if isinstance(content, str) and len(content) > 200:
+                    content = content[:200] + "..."
+                tool_calls.append({
+                    "tool": info["tool"],
+                    "args": info["args"],
+                    "result_preview": content,
+                })
+    return tool_calls
+
+
 def create_financial_agent():
     """Create the financial analysis agent."""
     config = get_config()
@@ -127,11 +156,15 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
     # Extract the final response
     final_message = result["messages"][-1]
 
+    # Extract tool call log from message history
+    tool_calls = _extract_tool_calls(result["messages"])
+
     return {
         "task": task,
         "tickers": tickers,
         "response": final_message.content if hasattr(final_message, "content") else str(final_message),
         "message_count": len(result["messages"]),
+        "tool_calls": tool_calls,
     }
 
 

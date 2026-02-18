@@ -12,7 +12,8 @@ import time
 import threading
 import traceback
 from src.config import get_config
-from src.agents.manager import run_manager_agent
+from src.agents.manager import run_manager_agent, extract_tool_call_summary
+from src.report.decision_tree import build_decision_tree_dot
 
 
 # Page config
@@ -176,6 +177,15 @@ def display_chat_history():
                         if comp.get("companies"):
                             st.caption(f"Companies: {', '.join(comp['companies'])}")
 
+                    # Decision tree visualization
+                    fin_tc = meta.get("financial_tool_calls", [])
+                    comp_tc = meta.get("competitor_tool_calls", [])
+                    if fin_tc or comp_tc:
+                        st.divider()
+                        st.markdown("**🌳 Decision Tree**")
+                        dot_str = build_decision_tree_dot(meta)
+                        st.graphviz_chart(dot_str, use_container_width=True)
+
 
 def render_stage_text(stage_states: dict, tick: int = 0) -> str:
     """Render stage status as markdown text with funky quips."""
@@ -309,6 +319,7 @@ def process_query(query: str):
             # Store metadata for "Behind the Scenes" expander (survives rerun)
             fin = agent_output.get("financial_results") or {}
             comp = agent_output.get("competitor_results") or {}
+            tool_summary = extract_tool_call_summary(agent_output)
             # Strip the large response text to keep session state lean
             metadata = {
                 "companies": agent_output.get("companies", []),
@@ -322,6 +333,8 @@ def process_query(query: str):
                     "message_count": comp.get("message_count"),
                     "companies": comp.get("companies"),
                 },
+                "financial_tool_calls": tool_summary["financial_tool_calls"],
+                "competitor_tool_calls": tool_summary["competitor_tool_calls"],
             }
 
             # Add to message history

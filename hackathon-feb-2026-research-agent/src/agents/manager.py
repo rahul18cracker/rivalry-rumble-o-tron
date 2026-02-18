@@ -260,6 +260,16 @@ async def run_manager_agent(
     }
 
 
+def extract_tool_call_summary(agent_output: dict) -> dict:
+    """Extract a lean summary of tool calls suitable for UI metadata."""
+    fin = agent_output.get("financial_results") or {}
+    comp = agent_output.get("competitor_results") or {}
+    return {
+        "financial_tool_calls": fin.get("tool_calls", []),
+        "competitor_tool_calls": comp.get("tool_calls", []),
+    }
+
+
 def run_manager_agent_sync(
     query: str,
     progress_callback: Any | None = None,
