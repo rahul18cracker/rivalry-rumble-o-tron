@@ -143,10 +143,38 @@ def display_example_queries():
 
 
 def display_chat_history():
-    """Display chat message history."""
+    """Display chat message history with optional agent activity log."""
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+
+            # Render agent activity log if metadata is present
+            meta = message.get("metadata")
+            if meta and message["role"] == "assistant":
+                with st.expander("🔎 Behind the Scenes"):
+                    companies = meta.get("companies", [])
+                    tickers = meta.get("tickers", [])
+                    elapsed = meta.get("elapsed", 0)
+                    fin = meta.get("financial_results") or {}
+                    comp = meta.get("competitor_results") or {}
+
+                    st.markdown(f"**Companies identified:** {', '.join(companies)}")
+                    st.markdown(f"**Tickers analyzed:** {', '.join(tickers)}")
+                    st.markdown(f"**Completed in:** {int(elapsed)}s")
+                    st.divider()
+
+                    col_fin, col_comp = st.columns(2)
+                    with col_fin:
+                        st.markdown("**📊 Number Cruncher**")
+                        st.caption(f"LLM round-trips: {fin.get('message_count', '?')}")
+                        if fin.get("tickers"):
+                            st.caption(f"Tickers: {', '.join(fin['tickers'])}")
+
+                    with col_comp:
+                        st.markdown("**🔍 Street Scout**")
+                        st.caption(f"LLM round-trips: {comp.get('message_count', '?')}")
+                        if comp.get("companies"):
+                            st.caption(f"Companies: {', '.join(comp['companies'])}")
 
 
 def render_stage_text(stage_states: dict, tick: int = 0) -> str:
@@ -258,7 +286,8 @@ def process_query(query: str):
             if worker_error[0]:
                 raise worker_error[0]
 
-            report = worker_result[0]
+            agent_output = worker_result[0]
+            report = agent_output["final_report"]
 
             # Show completion
             progress_bar.progress(1.0)
@@ -277,8 +306,30 @@ def process_query(query: str):
             elapsed_placeholder.empty()
             result_placeholder.markdown(report)
 
+            # Store metadata for "Behind the Scenes" expander (survives rerun)
+            fin = agent_output.get("financial_results") or {}
+            comp = agent_output.get("competitor_results") or {}
+            # Strip the large response text to keep session state lean
+            metadata = {
+                "companies": agent_output.get("companies", []),
+                "tickers": agent_output.get("tickers", []),
+                "elapsed": elapsed,
+                "financial_results": {
+                    "message_count": fin.get("message_count"),
+                    "tickers": fin.get("tickers"),
+                },
+                "competitor_results": {
+                    "message_count": comp.get("message_count"),
+                    "companies": comp.get("companies"),
+                },
+            }
+
             # Add to message history
-            st.session_state.messages.append({"role": "assistant", "content": report})
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": report,
+                "metadata": metadata,
+            })
 
         except Exception as e:
             progress_bar.empty()

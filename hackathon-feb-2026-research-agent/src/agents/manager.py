@@ -220,7 +220,7 @@ def get_manager_agent():
 async def run_manager_agent(
     query: str,
     progress_callback: Any | None = None,
-) -> str:
+) -> dict:
     """
     Run the manager agent to orchestrate research.
 
@@ -229,7 +229,8 @@ async def run_manager_agent(
         progress_callback: Optional callback function for progress updates
 
     Returns:
-        The final research report as markdown.
+        Dict with keys: final_report, companies, tickers, financial_results,
+        competitor_results, status.
     """
     agent = get_manager_agent()
 
@@ -250,7 +251,13 @@ async def run_manager_agent(
     # Run the agent
     result = await agent.ainvoke(initial_state)
 
-    return result["final_report"]
+    return {
+        "final_report": result["final_report"],
+        "companies": result.get("companies", []),
+        "tickers": result.get("tickers", []),
+        "financial_results": result.get("financial_results"),
+        "competitor_results": result.get("competitor_results"),
+    }
 
 
 def run_manager_agent_sync(
