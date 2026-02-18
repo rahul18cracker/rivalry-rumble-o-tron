@@ -84,19 +84,37 @@ def display_header():
     st.markdown("*Drop a company matchup. We'll dig up the financials, scout the competition, and deliver the verdict.*")
 
 
+EXAMPLE_QUERIES = [
+    {
+        "title": "📊 Observability Showdown",
+        "desc": "Cisco (Splunk + AppDynamics) vs DataDog vs Dynatrace — who owns the observability ring?",
+        "query": "Compare Cisco's observability portfolio (Splunk, AppDynamics) to DataDog and Dynatrace",
+    },
+    {
+        "title": "📈 DataDog vs Dynatrace",
+        "desc": "A head-to-head on financials, growth, and competitive positioning.",
+        "query": "Analyze DataDog vs Dynatrace - financial performance and competitive positioning",
+    },
+    {
+        "title": "☁️ Cloud Wars",
+        "desc": "AWS vs Azure vs GCP — market share, revenue, and strategic bets compared.",
+        "query": "Compare AWS, Microsoft Azure, and Google Cloud Platform - market share, revenue growth, and competitive strategy",
+    },
+]
+
+
 def display_example_queries():
-    """Display example queries as clickable buttons."""
-    st.markdown("### 💡 Example Queries")
+    """Display example queries as styled cards."""
+    st.markdown("### 💡 Try a Matchup")
 
-    col1, col2 = st.columns(2)
+    cols = st.columns(len(EXAMPLE_QUERIES))
 
-    with col1:
-        if st.button("📊 Observability Market Analysis", use_container_width=True):
-            return "Compare Cisco's observability portfolio (Splunk, AppDynamics) to DataDog and Dynatrace"
-
-    with col2:
-        if st.button("📈 DataDog vs Dynatrace", use_container_width=True):
-            return "Analyze DataDog vs Dynatrace - financial performance and competitive positioning"
+    for i, ex in enumerate(EXAMPLE_QUERIES):
+        with cols[i]:
+            st.markdown(f"**{ex['title']}**")
+            st.caption(ex["desc"])
+            if st.button("Run this", key=f"example_{i}", use_container_width=True):
+                return ex["query"]
 
     return None
 
