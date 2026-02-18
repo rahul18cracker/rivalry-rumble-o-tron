@@ -1,0 +1,153 @@
+# Skills Learned - Research Agent Team
+
+Technical learnings accumulated while building the multi-agent research system.
+
+---
+
+## 1. LangGraph Message Format
+
+**Problem**: LangGraph agents crashed with cryptic errors when using plain dicts for messages.
+
+**Root Cause**: LangGraph's `add_messages` reducer expects LangChain message objects, not raw dicts.
+
+**Fix**:
+```python
+# Wrong
+messages = [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
+
+# Correct
+from langchain_core.messages import SystemMessage, HumanMessage
+messages = [SystemMessage(content="..."), HumanMessage(content="...")]
+```
+
+**Also**: Use `Annotated[list, add_messages]` for the messages field in state TypedDicts so LangGraph properly merges message lists across nodes.
+
+---
+
+## 2. Streamlit + Async + Threading (NoSessionContext)
+
+**Problem**: `streamlit.errors.NoSessionContext` when trying to update Streamlit placeholders from an async agent callback.
+
+**Root Cause**: Two compounding issues:
+1. `asyncio.run()` fails inside Streamlit because Streamlit's script runner thread may already have an event loop.
+2. Running the async agent in a worker thread (via `threading.Thread` + `asyncio.new_event_loop()`) works for the agent, but the progress callback fires from that worker thread. Streamlit requires all UI writes to happen from the script runner thread that owns the session context.
+
+**Fix — Polling Pattern**:
+```python
+# Shared mutable state (written by worker, read by main)
+stage_states = {}
+
+def progress_callback(update):
+    # Only mutate shared data — NO Streamlit calls here
+    stage_states[update["stage"]] = {"status": update["status"], ...}
+
+def _run_agent():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    result[0] = loop.run_until_complete(run_manager_agent(query, progress_callback))
+    loop.close()
+
+thread = threading.Thread(target=_run_agent, daemon=True)
+thread.start()
+
+# Poll from main thread — Streamlit writes are safe here
+while thread.is_alive():
+    thread.join(timeout=1.0)
+    stages_placeholder.markdown(render_stage_text(stage_states))  # safe
+    progress_bar.progress(compute_progress(stage_states))         # safe
+```
+
+**Key Insight**: Streamlit placeholders (`st.empty()`, `st.progress()`) are NOT thread-safe for writes. Always update them from the script runner thread. Use a shared dict as the bridge between the worker and UI threads.
+
+---
+
+## 3. LangGraph Node Thread Pool
+
+**Problem**: Even within `asyncio`, LangGraph runs sync node functions (like `parse_request`) in a thread pool executor via `run_in_executor()`.
+
+**Implication**: A callback passed through LangGraph state and called from a sync node will execute in LangGraph's thread pool thread — not the thread that created the coroutine. This is why the Streamlit `NoSessionContext` error appeared even though the agent was invoked from a seemingly controlled thread.
+
+**Lesson**: Never assume which thread a callback will fire from when using LangGraph. Always design callbacks to be thread-safe (e.g., only mutate shared data structures).
+
+---
+
+## 4. Parallel Agent Execution with asyncio.gather
+
+**Problem**: Financial and Competitor agents were running sequentially (await one, then await the other), doubling the execution time.
+
+**Fix**: Use `asyncio.gather()` to run both concurrently:
+```python
+async def _noop():
+    return None
+
+financial_results, competitor_results = await asyncio.gather(
+    financial_task if financial_task else _noop(),
+    competitor_task if competitor_task else _noop(),
+)
+```
+
+**Note**: `asyncio.coroutine` is deprecated in Python 3.10+. Use a plain `async def` for no-op coroutines.
+
+---
+
+## 5. Streamlit Progress UI Patterns
+
+**Pattern**: Multi-stage progress display using placeholders.
+
+```python
+progress_bar = st.progress(0.0)
+stages_placeholder = st.empty()
+elapsed_placeholder = st.empty()
+result_placeholder = st.empty()
+
+# During processing: update progress_bar, stages_placeholder, elapsed_placeholder
+# On completion: .empty() the progress widgets, .markdown() the result
+```
+
+**Key Details**:
+- `st.empty()` creates a single-element placeholder that can be overwritten
+- `placeholder.empty()` clears the placeholder (removes from UI)
+- `st.container()` groups multiple elements but `container.empty()` clears all children
+- `st.progress(value)` accepts 0.0-1.0 float
+- Use `time.sleep(0.5)` before collapsing progress so the user sees 100%
+
+---
+
+## 6. Streamlit Rerun Behavior
+
+**Gotcha**: After `process_query()` completes, calling `st.rerun()` re-executes the entire script. The report must be stored in `st.session_state.messages` before rerun, otherwise it's lost.
+
+**Pattern**:
+```python
+if prompt := st.chat_input("..."):
+    process_query(prompt)      # stores result in st.session_state.messages
+    st.rerun()                 # re-renders with updated state
+```
+
+The `display_chat_history()` function then renders all stored messages on each rerun.
+
+---
+
+## 7. Tavily API Key Loading
+
+**Problem**: Tavily client initialization failed silently because `.env` wasn't loaded when the module was imported.
+
+**Fix**: Add `load_dotenv()` at the top of `tavily_tools.py` before accessing environment variables. Don't rely on it being loaded elsewhere.
+
+---
+
+## 8. Structured Callbacks for Progress Tracking
+
+**Pattern**: Instead of plain string callbacks, use structured dicts to enable richer UI:
+
+```python
+# Old: callback("Analyzing financial data...")
+# New:
+callback({
+    "stage": "financial",       # maps to a pipeline stage
+    "status": "running",        # pending | running | done
+    "detail": "Fetching data"   # human-readable detail
+})
+```
+
+This lets the UI maintain a state map of all stages and render each independently with appropriate icons and progress calculations.

@@ -1,8 +1,15 @@
 # Research Agent Team - Session Context
 
-## Last Session: 2026-02-13
+## Last Session: 2026-02-17
 
 ### What Was Accomplished
+
+1. **Progress Indicators Added** - Multi-stage pipeline progress display in Streamlit UI
+2. **Streamlit UI Tested End-to-End** - Full flow validated via browser: query → progress → report
+3. **Parallel Agent Execution** - Financial and Competitor agents now run concurrently via `asyncio.gather`
+4. **Async/Threading Architecture Fixed** - Solved Streamlit + async agent integration
+
+### Previous Session: 2026-02-13
 
 1. **Full Project Implementation** - Created complete multi-agent research system
 2. **All Agents Validated** - Financial, Competitor, and Manager agents working
@@ -18,16 +25,35 @@
 | Tavily tools | ✅ | Returns 5 results per search |
 | Financial Agent | ✅ | 9 messages, structured JSON output |
 | Competitor Agent | ✅ | 17 messages, competitive analysis |
-| Manager Orchestration | ✅ | ~7900 char report generated |
-| Streamlit UI | ⏸️ | Not fully tested (port issues) |
+| Manager Orchestration | ✅ | ~6300 char report generated |
+| Streamlit UI | ✅ | Full end-to-end validated in browser |
+| Progress Indicators | ✅ | 4-stage pipeline with progress bar + elapsed time |
 
-### Key Fixes Made
+### Key Fixes Made (2026-02-17)
+
+1. **Streamlit + Async Threading** - Streamlit's script runner thread owns the session context;
+   Streamlit placeholder writes (`st.empty().markdown()`) MUST happen from that thread.
+   LangGraph runs node functions in its own thread pool. Solution: worker thread for the
+   async agent, polling loop in the main thread for UI updates.
+
+2. **Structured Progress Callbacks** - Changed from plain string callbacks to structured
+   `{"stage": "parse", "status": "running", "detail": "Analyzing query..."}` dicts so
+   the UI can map progress to specific pipeline stages.
+
+3. **Parallel Sub-Agent Execution** - Switched from sequential `await` to `asyncio.gather()`
+   so Financial and Competitor agents run concurrently.
+
+### Key Fixes Made (2026-02-13)
 
 1. **LangGraph Message Format** - Changed from dict to LangChain message objects
    - Use `SystemMessage`, `HumanMessage` instead of `{"role": "...", "content": "..."}`
    - Use `Annotated[list, add_messages]` for state messages field
 
 2. **Tavily dotenv Loading** - Added `load_dotenv()` to tavily_tools.py
+
+### Skills Learned
+
+See [docs/skills-learned.md](docs/skills-learned.md) for detailed technical learnings.
 
 ### Quick Resume Commands
 
@@ -60,11 +86,12 @@ streamlit run ui/app.py
 
 ### Next Steps (TODO)
 
-1. [ ] Test Streamlit UI end-to-end
-2. [ ] Add progress indicators to UI
-3. [ ] Test error handling (missing keys, API failures)
-4. [ ] Add caching for API responses
-5. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
+1. [x] Test Streamlit UI end-to-end
+2. [x] Add progress indicators to UI
+3. [ ] UI refinement
+4. [ ] Test error handling (missing keys, API failures)
+5. [ ] Add caching for API responses
+6. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
 
 ### Git Status
 
@@ -72,6 +99,7 @@ streamlit run ui/app.py
 - Commits:
   1. `3caf2c7` - Initial project structure (32 files)
   2. `6565f09` - Fix agent message handling for LangGraph
+  3. `afeb679` - Add session context and update debug guides with learnings
 
 ### File Structure
 
@@ -79,7 +107,7 @@ streamlit run ui/app.py
 hackathon-feb-2026-research-agent/
 ├── src/
 │   ├── agents/
-│   │   ├── manager.py      # Orchestrator
+│   │   ├── manager.py      # Orchestrator (structured callbacks, asyncio.gather)
 │   │   ├── financial.py    # yfinance tools
 │   │   └── competitor.py   # Tavily tools
 │   ├── tools/
@@ -90,11 +118,12 @@ hackathon-feb-2026-research-agent/
 │   ├── config.py
 │   └── main.py
 ├── ui/
-│   └── app.py              # Streamlit UI
+│   └── app.py              # Streamlit UI (progress indicators, thread polling)
 ├── tests/
 ├── docs/
 │   ├── hackathon-plan.md
-│   └── post-hackathon-roadmap.md
+│   ├── post-hackathon-roadmap.md
+│   └── skills-learned.md   # Technical learnings from this project
 ├── venv/                   # Virtual environment (installed)
 ├── .env                    # API keys (not committed)
 └── requirements.txt
@@ -110,14 +139,14 @@ streamlit, python-dotenv, pydantic
 
 ### Sample Output (Full Orchestration)
 
-Query: "Compare Cisco's observability portfolio (Splunk, AppDynamics) to DataDog and Dynatrace"
+Query: "Analyze DataDog vs Dynatrace - financial performance and competitive positioning"
 
 Report includes:
 - Executive Summary
 - Companies Analyzed table
 - Financial Comparison table (Market Cap, Revenue, Growth, Margins)
-- Competitive Analysis (Products, Strengths, Weaknesses)
-- Key Insights
-- Sources
+- Competitive Analysis (Products, Strengths, Weaknesses, Differentiators)
+- Key Insights (5 actionable insights)
+- Sources (yfinance + Tavily web results)
 
-Report length: ~7900 characters
+Report length: ~6300 characters
