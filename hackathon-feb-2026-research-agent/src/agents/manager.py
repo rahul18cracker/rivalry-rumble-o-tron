@@ -49,6 +49,10 @@ def create_manager_agent():
     def parse_request(state: ManagerState) -> dict:
         """Parse the user request to identify companies and create task plan."""
         user_query = state["user_query"]
+        callback = state.get("progress_callback")
+
+        if callback:
+            callback({"stage": "parse", "status": "running", "detail": "Analyzing query..."})
 
         # Use LLM to parse the request
         parse_prompt = f"""Analyze this research request and extract:
@@ -100,6 +104,9 @@ Respond with JSON only:
             },
         ]
 
+        if callback:
+            callback({"stage": "parse", "status": "done", "detail": f"Found {len(companies)} companies"})
+
         return {
             "companies": companies,
             "tickers": tickers,
@@ -116,7 +123,8 @@ Respond with JSON only:
 
         # Update progress
         if callback:
-            callback("Delegating to Financial Agent...")
+            callback({"stage": "financial", "status": "running", "detail": "Fetching market data..."})
+            callback({"stage": "competitor", "status": "pending", "detail": "Waiting..."})
 
         # Run both agents in parallel
         financial_task = None
@@ -128,16 +136,21 @@ Respond with JSON only:
             elif task["agent"] == "competitor":
                 competitor_task = run_competitor_agent(task["task"], companies)
 
-        # Wait for both to complete
+        # Start both concurrently
         if callback:
-            callback("Analyzing financial data...")
+            callback({"stage": "competitor", "status": "running", "detail": "Searching competitive landscape..."})
 
-        financial_results = await financial_task if financial_task else None
+        async def _noop():
+            return None
+
+        financial_results, competitor_results = await asyncio.gather(
+            financial_task if financial_task else _noop(),
+            competitor_task if competitor_task else _noop(),
+        )
 
         if callback:
-            callback("Researching competitive landscape...")
-
-        competitor_results = await competitor_task if competitor_task else None
+            callback({"stage": "financial", "status": "done", "detail": "Financial analysis complete"})
+            callback({"stage": "competitor", "status": "done", "detail": "Competitor research complete"})
 
         return {
             "financial_results": financial_results,
@@ -154,7 +167,7 @@ Respond with JSON only:
         callback = state.get("progress_callback")
 
         if callback:
-            callback("Synthesizing research report...")
+            callback({"stage": "synthesize", "status": "running", "detail": "Writing final report..."})
 
         # Generate the report
         report = generate_report(
@@ -164,6 +177,9 @@ Respond with JSON only:
             competitor_data=competitor_results,
             llm=llm,
         )
+
+        if callback:
+            callback({"stage": "synthesize", "status": "done", "detail": "Report ready"})
 
         return {
             "final_report": report,

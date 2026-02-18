@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import asyncio
+import time
+import threading
+import traceback
 from src.config import get_config
 from src.agents.manager import run_manager_agent
 
@@ -34,13 +37,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Pipeline stage definitions
+PIPELINE_STAGES = [
+    {"key": "parse", "label": "Analyzing Query", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
+    {"key": "financial", "label": "Financial Agent", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
+    {"key": "competitor", "label": "Competitor Agent", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
+    {"key": "synthesize", "label": "Synthesizing Report", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
+]
+
+STAGE_PROGRESS = {"parse": 0.15, "financial": 0.50, "competitor": 0.50, "synthesize": 0.85}
+
 
 def init_session_state():
     """Initialize session state variables."""
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "current_status" not in st.session_state:
-        st.session_state.current_status = ""
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
 
@@ -106,44 +117,139 @@ def display_chat_history():
             st.markdown(message["content"])
 
 
-def update_status(status: str):
-    """Update the status display."""
-    st.session_state.current_status = status
+def render_stage_text(stage_states: dict) -> str:
+    """Render stage status as markdown text."""
+    lines = []
+    for stage_def in PIPELINE_STAGES:
+        key = stage_def["key"]
+        state = stage_states.get(key, {"status": "pending", "detail": ""})
+        status = state["status"]
+        detail = state.get("detail", "")
+
+        if status == "done":
+            icon = stage_def["icon_done"]
+        elif status == "running":
+            icon = stage_def["icon_running"]
+        else:
+            icon = stage_def["icon_pending"]
+
+        detail_str = f" — {detail}" if detail else ""
+        lines.append(f"{icon} **{stage_def['label']}**{detail_str}")
+
+    return "\n\n".join(lines)
 
 
-async def process_query(query: str):
-    """Process a research query."""
+def compute_progress(stage_states: dict) -> float:
+    """Compute progress bar value from stage states."""
+    done_stages = [k for k, v in stage_states.items() if v.get("status") == "done"]
+    running_stages = [k for k, v in stage_states.items() if v.get("status") == "running"]
+
+    progress = 0.0
+    for s in done_stages:
+        progress = max(progress, STAGE_PROGRESS.get(s, 0) + 0.10)
+    for s in running_stages:
+        progress = max(progress, STAGE_PROGRESS.get(s, 0))
+
+    return min(progress, 0.95)
+
+
+def process_query(query: str):
+    """Process a research query with progress indicators."""
     st.session_state.is_processing = True
 
     # Add user message to history
     st.session_state.messages.append({"role": "user", "content": query})
 
-    # Create a placeholder for the assistant response
     with st.chat_message("assistant"):
-        status_placeholder = st.empty()
+        progress_bar = st.progress(0.0)
+        stages_placeholder = st.empty()
+        elapsed_placeholder = st.empty()
         result_placeholder = st.empty()
 
-        # Show progress
-        status_placeholder.markdown("🔄 **Starting research...**")
+        # Shared mutable state between main thread and worker thread
+        stage_states = {}
+        start_time = time.time()
+        worker_result = [None]  # [0] = report string
+        worker_error = [None]   # [0] = exception
+
+        # Initial render
+        stages_placeholder.markdown(render_stage_text(stage_states))
+        elapsed_placeholder.caption("0s elapsed")
+
+        def progress_callback(update):
+            """Handle structured progress updates — only mutates shared dict.
+
+            This runs in the worker thread, so it must NOT call Streamlit APIs.
+            """
+            if isinstance(update, dict):
+                stage = update.get("stage")
+                if stage:
+                    stage_states[stage] = {
+                        "status": update.get("status", "running"),
+                        "detail": update.get("detail", ""),
+                    }
+
+        def _run_agent():
+            """Worker thread: runs the async agent in its own event loop."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                worker_result[0] = loop.run_until_complete(
+                    run_manager_agent(query, progress_callback)
+                )
+            except Exception as e:
+                worker_error[0] = e
+            finally:
+                loop.close()
 
         try:
-            # Define progress callback
-            def progress_callback(status: str):
-                status_placeholder.markdown(f"🔄 **{status}**")
+            # Start the agent in a background thread
+            thread = threading.Thread(target=_run_agent, daemon=True)
+            thread.start()
 
-            # Run the manager agent
-            report = await run_manager_agent(query, progress_callback)
+            # Poll the thread, updating Streamlit UI from the main thread
+            while thread.is_alive():
+                thread.join(timeout=1.0)
 
-            # Clear status and show results
-            status_placeholder.empty()
+                # Update UI from main thread (safe for Streamlit)
+                stages_placeholder.markdown(render_stage_text(stage_states))
+                progress_bar.progress(compute_progress(stage_states))
+                elapsed = time.time() - start_time
+                elapsed_placeholder.caption(f"{int(elapsed)}s elapsed")
+
+            # Thread finished — check for errors
+            if worker_error[0]:
+                raise worker_error[0]
+
+            report = worker_result[0]
+
+            # Show completion
+            progress_bar.progress(1.0)
+            elapsed = time.time() - start_time
+            elapsed_placeholder.caption(f"Completed in {int(elapsed)}s")
+
+            # Mark all stages done
+            for stage_def in PIPELINE_STAGES:
+                stage_states[stage_def["key"]] = {"status": "done", "detail": ""}
+            stages_placeholder.markdown(render_stage_text(stage_states))
+
+            # Brief pause so user sees 100%, then collapse progress and show report
+            time.sleep(0.5)
+            progress_bar.empty()
+            stages_placeholder.empty()
+            elapsed_placeholder.empty()
             result_placeholder.markdown(report)
 
             # Add to message history
             st.session_state.messages.append({"role": "assistant", "content": report})
 
         except Exception as e:
-            status_placeholder.empty()
-            error_msg = f"❌ Error: {str(e)}"
+            progress_bar.empty()
+            stages_placeholder.empty()
+            elapsed_placeholder.empty()
+            tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
+            print(f"ERROR in process_query:\n{''.join(tb_lines)}", flush=True)
+            error_msg = f"❌ Error: {type(e).__name__}: {str(e) or 'See server logs'}"
             result_placeholder.error(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
@@ -174,12 +280,12 @@ def main():
 
     # Chat input
     if prompt := st.chat_input("Enter your research query...", disabled=st.session_state.is_processing):
-        asyncio.run(process_query(prompt))
+        process_query(prompt)
         st.rerun()
 
     # Handle example query click
     if example_query:
-        asyncio.run(process_query(example_query))
+        process_query(example_query)
         st.rerun()
 
     # Footer
