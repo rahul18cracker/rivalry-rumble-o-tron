@@ -151,3 +151,67 @@ callback({
 ```
 
 This lets the UI maintain a state map of all stages and render each independently with appropriate icons and progress calculations.
+
+---
+
+## 9. Streamlit session_state Metadata for Rich Post-Run UI
+
+**Problem**: A `st.expander("Behind the Scenes")` created during `process_query()` disappeared after `st.rerun()` because Streamlit re-executes the entire script from scratch on each rerun.
+
+**Root Cause**: Any UI elements created during a function call are ephemeral — they only exist for that single script execution. After `st.rerun()`, only code that runs unconditionally (or based on `st.session_state`) will produce visible elements.
+
+**Fix**: Store metadata alongside the message in `st.session_state.messages`, then render the expander in `display_chat_history()` which runs on every script execution:
+
+```python
+# During process_query — store metadata with the message
+st.session_state.messages.append({
+    "role": "assistant",
+    "content": report,
+    "metadata": {
+        "companies": [...],
+        "tickers": [...],
+        "elapsed": elapsed,
+        "financial_results": {"message_count": 7, "tickers": [...]},
+        "competitor_results": {"message_count": 13, "companies": [...]},
+    },
+})
+
+# In display_chat_history — render from session state (survives rerun)
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        meta = message.get("metadata")
+        if meta and message["role"] == "assistant":
+            with st.expander("Behind the Scenes"):
+                # render agent stats from meta
+```
+
+**Lesson**: In Streamlit, anything that must survive a rerun must be in `st.session_state`. Design your data model so all rich UI elements (expanders, charts, tables) can be reconstructed from session state alone.
+
+---
+
+## 10. Agent Return Type Design — Dict Over String
+
+**Problem**: `run_manager_agent()` originally returned just the report string. When the UI needed agent metadata (companies, tickers, LLM round-trips) for the "Behind the Scenes" expander, there was no way to access it.
+
+**Fix**: Changed the return type from `str` to `dict`:
+
+```python
+# Before
+async def run_manager_agent(query, callback) -> str:
+    ...
+    return result["final_report"]
+
+# After
+async def run_manager_agent(query, callback) -> dict:
+    ...
+    return {
+        "final_report": result["final_report"],
+        "companies": result.get("companies", []),
+        "tickers": result.get("tickers", []),
+        "financial_results": result.get("financial_results"),
+        "competitor_results": result.get("competitor_results"),
+    }
+```
+
+**Lesson**: Design agent entry points to return structured dicts from the start, even if you only need one field today. Adding metadata later requires changing every caller. A dict is extensible without breaking the contract.
