@@ -81,6 +81,7 @@ def validate_config():
 def display_header():
     """Display the app header."""
     st.title("🥊 Rivalry Rumble-o-Tron")
+    st.markdown("*Drop a company matchup. We'll dig up the financials, scout the competition, and deliver the verdict.*")
 
 
 def display_example_queries():
@@ -265,11 +266,11 @@ def main():
     st.divider()
 
     # Chat history
-    st.markdown("### 💬 Research Chat")
+    st.markdown("### 🥊 The Ring")
     display_chat_history()
 
     # Chat input
-    if prompt := st.chat_input("Enter your research query...", disabled=st.session_state.is_processing):
+    if prompt := st.chat_input("Who's going head-to-head? Drop your matchup here...", disabled=st.session_state.is_processing):
         process_query(prompt)
         st.rerun()
 
