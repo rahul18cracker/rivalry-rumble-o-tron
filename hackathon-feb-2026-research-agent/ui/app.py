@@ -17,8 +17,8 @@ from src.agents.manager import run_manager_agent
 
 # Page config
 st.set_page_config(
-    page_title="Research Agent Team",
-    page_icon="🔍",
+    page_title="Rivalry Rumble-o-Tron",
+    page_icon="🥊",
     layout="wide",
 )
 
@@ -80,17 +80,7 @@ def validate_config():
 
 def display_header():
     """Display the app header."""
-    st.title("🔍 Research Agent Team")
-    st.markdown("""
-    Multi-agent research system for competitive analysis.
-
-    **How it works:**
-    1. Enter your research query
-    2. The Manager Agent delegates to specialized sub-agents
-    3. Financial Agent analyzes market data
-    4. Competitor Agent researches positioning
-    5. Results are synthesized into a comprehensive report
-    """)
+    st.title("🥊 Rivalry Rumble-o-Tron")
 
 
 def display_example_queries():
@@ -292,7 +282,7 @@ def main():
     st.divider()
     st.markdown("""
     <div style="text-align: center; color: #888;">
-    Research Agent Team v0.1 | Built with LangGraph + Claude + Streamlit
+    Rivalry Rumble-o-Tron v0.1 | Built with LangGraph + Claude + Streamlit
     </div>
     """, unsafe_allow_html=True)
 
