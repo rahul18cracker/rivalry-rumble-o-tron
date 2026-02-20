@@ -1,25 +1,28 @@
 """Financial Agent - analyzes company financial data using yfinance."""
 
-from typing import Any, Annotated
+from typing import Annotated, Any, TypedDict
+
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..config import get_config
+from ..logging_config import get_logger
 from ..prompts.financial_prompt import FINANCIAL_SYSTEM_PROMPT
 from ..tools.yfinance_tools import (
+    get_company_comparison,
     get_company_financials,
     get_historical_revenue,
-    get_company_comparison,
 )
 
+logger = get_logger(__name__)
 
-from typing import TypedDict
 
 class FinancialState(TypedDict):
     """State for financial agent."""
+
     messages: Annotated[list, add_messages]
     tickers: list[str]
 
@@ -53,11 +56,13 @@ def _extract_tool_calls(messages: list) -> list[dict]:
                 content = msg.content if hasattr(msg, "content") else str(msg)
                 if isinstance(content, str) and len(content) > 200:
                     content = content[:200] + "..."
-                tool_calls.append({
-                    "tool": info["tool"],
-                    "args": info["args"],
-                    "result_preview": content,
-                })
+                tool_calls.append(
+                    {
+                        "tool": info["tool"],
+                        "args": info["args"],
+                        "result_preview": content,
+                    }
+                )
     return tool_calls
 
 
@@ -134,41 +139,57 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
     Returns:
         Dictionary containing financial analysis results.
     """
-    agent = get_financial_agent()
+    logger.info("financial_agent.run.start", task=task, tickers=tickers)
+    try:
+        agent = get_financial_agent()
 
-    # Build the prompt
-    if tickers:
-        ticker_info = f"\n\nAnalyze the following tickers: {', '.join(tickers)}"
-    else:
-        ticker_info = ""
+        # Build the prompt
+        if tickers:
+            ticker_info = f"\n\nAnalyze the following tickers: {', '.join(tickers)}"
+        else:
+            ticker_info = ""
 
-    messages = [
-        SystemMessage(content=FINANCIAL_SYSTEM_PROMPT),
-        HumanMessage(content=f"{task}{ticker_info}"),
-    ]
+        messages = [
+            SystemMessage(content=FINANCIAL_SYSTEM_PROMPT),
+            HumanMessage(content=f"{task}{ticker_info}"),
+        ]
 
-    # Run the agent
-    result = await agent.ainvoke({
-        "messages": messages,
-        "tickers": tickers or [],
-    })
+        # Run the agent
+        result = await agent.ainvoke(
+            {
+                "messages": messages,
+                "tickers": tickers or [],
+            }
+        )
 
-    # Extract the final response
-    final_message = result["messages"][-1]
+        # Extract the final response
+        final_message = result["messages"][-1]
 
-    # Extract tool call log from message history
-    tool_calls = _extract_tool_calls(result["messages"])
+        # Extract tool call log from message history
+        tool_calls = _extract_tool_calls(result["messages"])
 
-    return {
-        "task": task,
-        "tickers": tickers,
-        "response": final_message.content if hasattr(final_message, "content") else str(final_message),
-        "message_count": len(result["messages"]),
-        "tool_calls": tool_calls,
-    }
+        logger.info("financial_agent.run.end", tickers=tickers, tool_call_count=len(tool_calls))
+        return {
+            "task": task,
+            "tickers": tickers,
+            "response": final_message.content if hasattr(final_message, "content") else str(final_message),
+            "message_count": len(result["messages"]),
+            "tool_calls": tool_calls,
+        }
+    except Exception as e:
+        logger.error("financial_agent.run.error", task=task, error=str(e))
+        return {
+            "error": str(e),
+            "response": "",
+            "task": task,
+            "tickers": tickers or [],
+            "message_count": 0,
+            "tool_calls": [],
+        }
 
 
 def run_financial_agent_sync(task: str, tickers: list[str] | None = None) -> dict[str, Any]:
     """Synchronous wrapper for run_financial_agent."""
     import asyncio
+
     return asyncio.run(run_financial_agent(task, tickers))

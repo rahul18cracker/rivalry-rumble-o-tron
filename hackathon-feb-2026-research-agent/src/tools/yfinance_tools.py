@@ -1,8 +1,13 @@
 """Yahoo Finance tools for financial data retrieval."""
 
 from typing import Any
+
 import yfinance as yf
 from langchain_core.tools import tool
+
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _format_large_number(num: float | None) -> str:
@@ -45,6 +50,10 @@ def get_company_financials(ticker: str) -> dict[str, Any]:
         - sector: Company sector
         - industry: Company industry
     """
+    if not ticker or not ticker.strip():
+        return {"error": "Empty ticker symbol", "ticker": ticker, "source": "yfinance"}
+
+    logger.info("yfinance.get_financials", ticker=ticker)
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
@@ -68,6 +77,7 @@ def get_company_financials(ticker: str) -> dict[str, Any]:
             "source": "yfinance",
         }
     except Exception as e:
+        logger.error("yfinance.get_financials.error", ticker=ticker, error=str(e))
         return {
             "error": str(e),
             "ticker": ticker,
@@ -90,6 +100,10 @@ def get_historical_revenue(ticker: str, years: int = 3) -> dict[str, Any]:
         - ticker: Stock ticker
         - historical_revenue: List of yearly revenue data
     """
+    if not ticker or not ticker.strip():
+        return {"error": "Empty ticker symbol", "ticker": ticker, "historical_revenue": [], "source": "yfinance"}
+
+    logger.info("yfinance.get_historical_revenue", ticker=ticker, years=years)
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
@@ -111,11 +125,13 @@ def get_historical_revenue(ticker: str, years: int = 3) -> dict[str, Any]:
                     if i >= years:
                         break
                     if value is not None and not (isinstance(value, float) and value != value):  # Check for NaN
-                        historical.append({
-                            "year": date.year,
-                            "revenue": value,
-                            "revenue_formatted": _format_large_number(value),
-                        })
+                        historical.append(
+                            {
+                                "year": date.year,
+                                "revenue": value,
+                                "revenue_formatted": _format_large_number(value),
+                            }
+                        )
 
         return {
             "company_name": info.get("shortName", ticker),
@@ -124,6 +140,7 @@ def get_historical_revenue(ticker: str, years: int = 3) -> dict[str, Any]:
             "source": "yfinance",
         }
     except Exception as e:
+        logger.error("yfinance.get_historical_revenue.error", ticker=ticker, error=str(e))
         return {
             "error": str(e),
             "ticker": ticker,

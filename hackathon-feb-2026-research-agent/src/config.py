@@ -2,10 +2,15 @@
 
 import os
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
+
+from .logging_config import get_logger
 
 # Load environment variables
 load_dotenv()
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -33,11 +38,7 @@ class Config:
 
         # Default companies for demo
         if self.default_companies is None:
-            self.default_companies = [
-                "Cisco (Splunk/AppDynamics)",
-                "DataDog",
-                "Dynatrace"
-            ]
+            self.default_companies = ["Cisco (Splunk/AppDynamics)", "DataDog", "Dynatrace"]
 
         # Ticker mappings for financial data
         if self.ticker_map is None:
@@ -58,6 +59,11 @@ class Config:
 
         if not self.tavily_api_key:
             errors.append("TAVILY_API_KEY not set")
+
+        if errors:
+            logger.warning("config.validation_errors", errors=errors)
+        else:
+            logger.info("config.validated")
 
         return errors
 

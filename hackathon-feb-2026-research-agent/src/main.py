@@ -1,9 +1,10 @@
 """Main entry point for research agent team."""
 
-import sys
 import asyncio
-from .config import get_config
+import sys
+
 from .agents import run_manager_agent
+from .config import get_config
 
 
 def main(query: str | None = None) -> str:

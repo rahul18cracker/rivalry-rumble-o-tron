@@ -2,11 +2,16 @@
 
 import os
 from typing import Any
-from langchain_core.tools import tool
+
 from dotenv import load_dotenv
+from langchain_core.tools import tool
+
+from ..logging_config import get_logger
 
 # Load environment variables
 load_dotenv()
+
+logger = get_logger(__name__)
 
 # Lazy import to avoid issues if tavily not installed
 _tavily_client = None
@@ -17,6 +22,7 @@ def _get_client():
     global _tavily_client
     if _tavily_client is None:
         from tavily import TavilyClient
+
         api_key = os.getenv("TAVILY_API_KEY")
         if not api_key:
             raise ValueError("TAVILY_API_KEY environment variable not set")
@@ -38,6 +44,16 @@ def search_company_info(company_name: str) -> dict[str, Any]:
         - results: List of relevant search results
         - sources: List of source URLs
     """
+    if not company_name or not company_name.strip():
+        return {
+            "company": company_name,
+            "error": "Empty company name",
+            "results": [],
+            "sources": [],
+            "source": "tavily",
+        }
+
+    logger.info("tavily.search_company_info", company=company_name)
     try:
         client = _get_client()
 
@@ -52,11 +68,13 @@ def search_company_info(company_name: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -66,6 +84,7 @@ def search_company_info(company_name: str) -> dict[str, Any]:
             "source": "tavily",
         }
     except Exception as e:
+        logger.error("tavily.search_company_info.error", company=company_name, error=str(e))
         return {
             "company": company_name,
             "error": str(e),
@@ -92,6 +111,7 @@ def search_competitive_analysis(company_name: str, competitors: list[str] | None
         - weaknesses: List of identified weaknesses
         - sources: List of source URLs
     """
+    logger.info("tavily.search_competitive_analysis", company=company_name, competitors=competitors)
     try:
         client = _get_client()
 
@@ -112,11 +132,13 @@ def search_competitive_analysis(company_name: str, competitors: list[str] | None
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -127,6 +149,7 @@ def search_competitive_analysis(company_name: str, competitors: list[str] | None
             "source": "tavily",
         }
     except Exception as e:
+        logger.error("tavily.search_competitive_analysis.error", company=company_name, error=str(e))
         return {
             "company": company_name,
             "error": str(e),
@@ -148,6 +171,7 @@ def search_product_info(company_name: str, product_category: str) -> dict[str, A
     Returns:
         Dictionary with product information.
     """
+    logger.info("tavily.search_product_info", company=company_name, category=product_category)
     try:
         client = _get_client()
 
@@ -162,11 +186,13 @@ def search_product_info(company_name: str, product_category: str) -> dict[str, A
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -177,6 +203,7 @@ def search_product_info(company_name: str, product_category: str) -> dict[str, A
             "source": "tavily",
         }
     except Exception as e:
+        logger.error("tavily.search_product_info.error", company=company_name, error=str(e))
         return {
             "company": company_name,
             "product_category": product_category,
@@ -198,6 +225,7 @@ def search_market_trends(topic: str) -> dict[str, Any]:
     Returns:
         Dictionary with market trend information.
     """
+    logger.info("tavily.search_market_trends", topic=topic)
     try:
         client = _get_client()
 
@@ -212,11 +240,13 @@ def search_market_trends(topic: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -226,6 +256,7 @@ def search_market_trends(topic: str) -> dict[str, Any]:
             "source": "tavily",
         }
     except Exception as e:
+        logger.error("tavily.search_market_trends.error", topic=topic, error=str(e))
         return {
             "topic": topic,
             "error": str(e),
@@ -243,7 +274,9 @@ def fetch_company_info(company_name: str) -> dict[str, Any]:
 
 def fetch_competitive_analysis(company_name: str, competitors: list[str] | None = None) -> dict[str, Any]:
     """Direct function to fetch competitive analysis without tool wrapper."""
-    return search_competitive_analysis.invoke({
-        "company_name": company_name,
-        "competitors": competitors,
-    })
+    return search_competitive_analysis.invoke(
+        {
+            "company_name": company_name,
+            "competitors": competitors,
+        }
+    )
