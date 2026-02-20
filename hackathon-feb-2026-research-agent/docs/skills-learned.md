@@ -267,3 +267,158 @@ def _extract_tool_calls(messages):
 ```
 
 **Lesson**: For demo UIs, simple text with good formatting beats fancy graph visualizations. `st.code()` preserves monospace alignment, supports emojis, and scales naturally. Save Graphviz for offline/exported diagrams where the viewer can zoom.
+
+---
+
+## 13. asyncio.gather with return_exceptions for Partial Failures
+
+**Problem**: When running financial and competitor agents in parallel via `asyncio.gather()`, if one agent threw an exception the entire gather call failed — killing the other agent's results too.
+
+**Fix**: Use `return_exceptions=True` so exceptions are returned as values instead of raised, then check each result:
+
+```python
+financial_results, competitor_results = await asyncio.wait_for(
+    asyncio.gather(
+        financial_task, competitor_task,
+        return_exceptions=True,  # Don't let one failure kill both
+    ),
+    timeout=120,
+)
+
+# Check for individual agent failures
+if isinstance(financial_results, BaseException):
+    financial_results = {"error": str(financial_results), "response": ""}
+if isinstance(competitor_results, BaseException):
+    competitor_results = {"error": str(competitor_results), "response": ""}
+```
+
+**Key Detail**: `return_exceptions=True` returns the exception object (not raises it). Check with `isinstance(result, BaseException)` — NOT `isinstance(result, Exception)` since `asyncio.CancelledError` inherits from `BaseException`.
+
+**Also**: Wrap gather in `asyncio.wait_for(timeout=N)` to prevent agents from hanging forever. Catch `asyncio.TimeoutError` at the outer level.
+
+---
+
+## 14. Mocking LangGraph Agents for Testing Without API Keys
+
+**Problem**: LangGraph agents require a real LLM (Anthropic API key) to create and run. Tests can't make real API calls in CI.
+
+**Fix**: Mock at two levels:
+
+1. **Agent creation level** — Patch `get_financial_agent()` to return a mock agent with an `ainvoke` AsyncMock:
+```python
+mock_agent = MagicMock()
+final_msg = MagicMock(content="result", tool_calls=[])
+mock_agent.ainvoke = AsyncMock(return_value={"messages": [final_msg], "tickers": ["DDOG"]})
+
+with patch("src.agents.financial.get_financial_agent", return_value=mock_agent):
+    result = await run_financial_agent("task", ["DDOG"])
+```
+
+2. **Sub-agent level (for manager tests)** — Patch `run_financial_agent` and `run_competitor_agent` directly:
+```python
+with patch("src.agents.manager.run_financial_agent", new_callable=AsyncMock, return_value=sample_response):
+    result = await run_manager_agent("query")
+```
+
+**Critical**: Reset module-level singletons (`_financial_agent = None`, etc.) between tests with an autouse fixture, otherwise the first test's agent leaks into subsequent tests.
+
+---
+
+## 15. Singleton Reset Pattern for Test Isolation
+
+**Problem**: LangGraph agents are created lazily and cached in module-level variables (`_financial_agent`, `_manager_agent`, etc.). Once created in one test, the same (potentially misconfigured) agent leaks into every subsequent test.
+
+**Fix**: Autouse fixture that resets all singletons before each test:
+
+```python
+@pytest.fixture(autouse=True)
+def reset_singletons():
+    import src.agents.financial as fin_mod
+    import src.agents.competitor as comp_mod
+    import src.agents.manager as mgr_mod
+    import src.tools.tavily_tools as tavily_mod
+
+    fin_mod._financial_agent = None
+    comp_mod._competitor_agent = None
+    mgr_mod._manager_agent = None
+    tavily_mod._tavily_client = None
+    yield
+```
+
+**Lesson**: Any module-level cache/singleton is a test isolation hazard. Always provide a reset mechanism.
+
+---
+
+## 16. structlog for Multi-Agent Structured Logging
+
+**Problem**: Print-statement debugging doesn't scale when you have 3+ agents running concurrently with tool calls, LLM invocations, and callbacks all interleaved.
+
+**Fix**: Use `structlog` with JSON output — every log line includes the module name and structured key-value pairs:
+
+```python
+# src/logging_config.py
+import structlog
+
+def configure_logging(log_level="INFO"):
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+    )
+
+# In each module:
+logger = get_logger(__name__)
+logger.info("financial_agent.run.start", task=task, tickers=tickers)
+```
+
+**Key Design**: Use dotted event names (`agent.stage.status`) for easy filtering: `grep "manager.execute"` shows all orchestration events.
+
+---
+
+## 17. Graceful Degradation in Report Generator
+
+**Problem**: If the LLM synthesis call fails during report generation, the entire pipeline crashes — losing all the financial and competitor data that was already fetched.
+
+**Fix**: Wrap the LLM call and fall back to basic (template-based) report generation:
+
+```python
+def _generate_with_llm(query, companies, financial_response, competitor_response, llm):
+    try:
+        response = llm.invoke([{"role": "user", "content": synthesis_prompt}])
+        return response.content
+    except Exception as e:
+        logger.warning("report.llm_synthesis.error", error=str(e))
+        return _generate_basic_report(query, companies, financial_response, competitor_response)
+```
+
+**Lesson**: In multi-stage pipelines, each stage should degrade gracefully rather than crash. The user gets a less polished report, but still gets the data.
+
+---
+
+## 18. ruff as Single Lint + Format Tool
+
+**Problem**: Previously no linting — import sorting was inconsistent, unused imports accumulated, and formatting varied.
+
+**Fix**: Add ruff to `pyproject.toml` with minimal config:
+
+```toml
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]  # errors, pyflakes, isort, warnings
+
+[tool.ruff.lint.per-file-ignores]
+"src/prompts/*.py" = ["E501"]  # Long lines OK in prompt templates
+```
+
+**Key Workflow**: `ruff check --fix` auto-fixes 90% of issues (import sorting, unused imports). `ruff format` handles the rest. Run both in CI as a fast-fail gate before tests.
+
+**Gotcha**: Multiline string literals (like prompt templates) can't be reformatted without breaking the content. Use per-file-ignores for E501 on those files.
