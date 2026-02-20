@@ -3,10 +3,12 @@
 from datetime import datetime
 from typing import Any
 
+from ..logging_config import get_logger
 from .templates import (
-    REPORT_TEMPLATE,
     format_companies_table,
 )
+
+logger = get_logger(__name__)
 
 
 def generate_report(
@@ -70,7 +72,7 @@ def _generate_with_llm(
 
 Original Query: {query}
 
-Companies Analyzed: {', '.join(companies)}
+Companies Analyzed: {", ".join(companies)}
 
 === FINANCIAL AGENT OUTPUT ===
 {financial_response}
@@ -107,11 +109,22 @@ Create a comprehensive markdown research report with these sections:
 
 Format the report in clean markdown. Use tables where appropriate.
 Start with a title: "# Competitive Analysis: Observability Market"
-Include the date: *Generated: {datetime.now().strftime('%Y-%m-%d')} | Research Agent v0.1*
+Include the date: *Generated: {datetime.now().strftime("%Y-%m-%d")} | Research Agent v0.1*
 """
 
-    response = llm.invoke([{"role": "user", "content": synthesis_prompt}])
-    return response.content
+    logger.info("report.llm_synthesis.start", companies=companies)
+    try:
+        response = llm.invoke([{"role": "user", "content": synthesis_prompt}])
+        logger.info("report.llm_synthesis.end")
+        return response.content
+    except Exception as e:
+        logger.warning("report.llm_synthesis.error", error=str(e))
+        return _generate_basic_report(
+            query=query,
+            companies=companies,
+            financial_response=financial_response,
+            competitor_response=competitor_response,
+        )
 
 
 def _generate_basic_report(

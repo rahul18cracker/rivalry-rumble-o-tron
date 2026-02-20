@@ -1,19 +1,23 @@
 # Rivalry Rumble-o-Tron - Session Context
 
-## Last Session: 2026-02-17 (Session 3 — Decision Tree & Observability Plan)
+## Last Session: 2026-02-20 (Session 4 — Stabilization: Error Handling, Tests, CI)
 
 ### What Was Accomplished
 
-1. **Decision Tree Visualization** — Plain-text tree rendered via `st.code()` in the Behind the Scenes expander, showing full pipeline: User Query → Parse → parallel Number Cruncher + Street Scout (with every tool call listed) → Verdict. Initially built as Graphviz DOT but replaced with text tree for readability.
-2. **Tool Call Extraction** — `_extract_tool_calls()` function in both sub-agents walks LangGraph message history, extracts tool name, arguments, and result preview from AIMessage/ToolMessage pairs
-3. **Manager Return Enhancement** — `extract_tool_call_summary()` helper passes tool call logs from sub-agents through to the UI metadata
-4. **Post-Hackathon Observability Plan** — Comprehensive 5-section plan added to `docs/post-hackathon-roadmap.md` covering LangSmith/LangFuse, error classification, cost monitoring, and quality scoring
+1. **Custom Exception Hierarchy** — `src/errors.py` with `ResearchAgentError` base and 5 subclasses (ConfigurationError, LLMError, ToolExecutionError, OrchestrationError, ReportGenerationError)
+2. **Structured Logging** — `src/logging_config.py` using structlog with JSON output. Loggers added to config, tools, agents, generator, and manager
+3. **Error Handling** — LLM fallbacks in parse/synthesize, `asyncio.wait_for` timeout (120s), `return_exceptions=True` for partial failure support, graceful degradation in report generator, input validation on tools (empty ticker/company)
+4. **80 Tests** — Unit tests for all modules + integration tests for full pipeline. Zero external API calls (all mocked). 80% code coverage
+5. **CI Pipeline** — `.github/workflows/ci.yml`: ruff lint → ruff format → pytest on Python 3.11/3.12, `--cov-fail-under=70`
+6. **Dev Tooling** — Added pytest-cov, pytest-mock, structlog, ruff to dev dependencies. Ruff config (line-length=120, py311, E/F/I/W rules)
+7. **Test Migration** — Old `test_agents.py` and `test_tools.py` migrated to `tests/unit/` and `tests/integration/` with proper mocking
 
 ### Previous Sessions
 
 - **2026-02-13**: Full project implementation, all agents validated, orchestration tested
 - **2026-02-17 (Session 1)**: Progress indicators, async fix, skills-learned doc
 - **2026-02-17 (Session 2)**: Rebranded to "Rivalry Rumble-o-Tron", example query cards, funky quips, Behind the Scenes expander, parallel agent execution
+- **2026-02-17 (Session 3)**: Decision tree visualization, tool call extraction, observability roadmap
 
 ### Validation Results
 
@@ -32,6 +36,13 @@
 | Decision Tree | ✅ | Text tree in Behind the Scenes (st.code) |
 | Tool Call Extraction | ✅ | Both sub-agents extract tool logs |
 | Brand / Theme | ✅ | "Rivalry Rumble-o-Tron" throughout |
+| Error Handling | ✅ | LLM fallbacks, timeout, partial failures |
+| Structured Logging | ✅ | structlog JSON across all modules |
+| Unit Tests | ✅ | 75 tests, all mocked, no API keys needed |
+| Integration Tests | ✅ | 5 pipeline tests (happy + failure paths) |
+| Coverage | ✅ | 80% (threshold: 70%) |
+| Lint | ✅ | ruff check + format clean |
+| CI Pipeline | ✅ | GitHub Actions on push/PR |
 
 ### Skills Learned
 
@@ -59,14 +70,20 @@ streamlit run ui/app.py
 2. [x] Add progress indicators to UI
 3. [x] UI refinement (brand, cards, quips, activity log)
 4. [x] Observability / decision tree visualization
-5. [ ] Test error handling (missing keys, API failures)
-6. [ ] Add caching for API responses
-7. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
-8. [ ] Production observability (LangSmith, cost tracking, quality scoring — see post-hackathon-roadmap.md)
+5. [x] Error handling (missing keys, API failures, timeouts, partial failures)
+6. [x] Structured logging (structlog JSON)
+7. [x] Comprehensive test suite (80 tests, 80% coverage)
+8. [x] CI pipeline (GitHub Actions: lint + test on 3.11/3.12)
+9. [ ] Add caching for API responses
+10. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
+11. [ ] Production observability (LangSmith, cost tracking, quality scoring — see post-hackathon-roadmap.md)
 
 ### Git Log
 
 ```
+b84ae61 Add error handling, structured logging, tests, and CI pipeline
+c689f07 Add CLAUDE.md with project context and technical learnings
+a0c22ff Update session context and skills for text tree + demo prep
 bd83ce9 Replace Graphviz decision tree with readable text tree
 1270d33 Add observability roadmap and update session context
 5122e0c Add decision tree visualization to Behind the Scenes
@@ -87,28 +104,36 @@ afeb679 Add session context and update debug guides with learnings
 
 ```
 hackathon-feb-2026-research-agent/
+├── .github/workflows/
+│   └── ci.yml              # GitHub Actions: lint + test (3.11/3.12)
 ├── src/
 │   ├── agents/
-│   │   ├── manager.py      # Orchestrator (structured callbacks, asyncio.gather)
+│   │   ├── manager.py      # Orchestrator (error handling, timeout, partial failures)
 │   │   ├── financial.py    # yfinance tools (Number Cruncher)
 │   │   └── competitor.py   # Tavily tools (Street Scout)
 │   ├── tools/
-│   │   ├── yfinance_tools.py
-│   │   └── tavily_tools.py
+│   │   ├── yfinance_tools.py  # Input validation, logging
+│   │   └── tavily_tools.py    # Input validation, logging
 │   ├── prompts/
 │   ├── report/
-│   │   ├── generator.py       # LLM-powered report synthesis
-│   │   └── decision_tree.py   # Text tree generation for Behind the Scenes
+│   │   ├── generator.py       # LLM synthesis with fallback
+│   │   └── decision_tree.py   # Text tree for Behind the Scenes
 │   ├── config.py
+│   ├── errors.py           # Custom exception hierarchy
+│   ├── logging_config.py   # structlog JSON configuration
 │   └── main.py
 ├── ui/
 │   └── app.py              # Streamlit UI (Rivalry Rumble-o-Tron)
 ├── tests/
+│   ├── conftest.py         # Shared fixtures, singleton reset
+│   ├── unit/               # 75 unit tests (all mocked)
+│   └── integration/        # 5 pipeline tests
 ├── docs/
 │   ├── hackathon-plan.md
 │   ├── post-hackathon-roadmap.md
 │   └── skills-learned.md
 ├── venv/
+├── pyproject.toml          # Dev deps, pytest markers, ruff config
 ├── .env                    # API keys (not committed)
-└── requirements.txt
+└── CLAUDE.md               # Project context for AI assistants
 ```

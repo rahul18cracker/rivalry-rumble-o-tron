@@ -2,19 +2,23 @@
 
 import asyncio
 import json
-from typing import Any, TypedDict, Literal
+from typing import Any, Literal, TypedDict
+
 from langchain_anthropic import ChatAnthropic
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 from ..config import get_config
-from ..prompts.manager_prompt import MANAGER_SYSTEM_PROMPT
-from .financial import run_financial_agent
-from .competitor import run_competitor_agent
+from ..logging_config import get_logger
 from ..report.generator import generate_report
+from .competitor import run_competitor_agent
+from .financial import run_financial_agent
+
+logger = get_logger(__name__)
 
 
 class ResearchTask(TypedDict):
     """A single research task."""
+
     agent: Literal["financial", "competitor"]
     task: str
     companies: list[str]
@@ -23,6 +27,7 @@ class ResearchTask(TypedDict):
 
 class ManagerState(TypedDict):
     """State for manager agent."""
+
     messages: list
     user_query: str
     companies: list[str]
@@ -54,6 +59,8 @@ def create_manager_agent():
         if callback:
             callback({"stage": "parse", "status": "running", "detail": "Analyzing query..."})
 
+        logger.info("manager.parse.start", query=user_query)
+
         # Use LLM to parse the request
         parse_prompt = f"""Analyze this research request and extract:
 1. Companies to analyze
@@ -69,9 +76,9 @@ Respond with JSON only:
     "focus": "Brief description of research focus"
 }}"""
 
-        response = llm.invoke([{"role": "user", "content": parse_prompt}])
-
         try:
+            response = llm.invoke([{"role": "user", "content": parse_prompt}])
+
             # Try to parse JSON from response
             content = response.content
             # Handle potential markdown code blocks
@@ -84,7 +91,11 @@ Respond with JSON only:
             companies = parsed.get("companies", [])
             tickers = parsed.get("tickers", [])
         except (json.JSONDecodeError, IndexError):
-            # Fallback to default companies for observability analysis
+            logger.warning("manager.parse.json_error", query=user_query)
+            companies = ["Cisco (Splunk/AppDynamics)", "DataDog", "Dynatrace"]
+            tickers = ["CSCO", "DDOG", "DT"]
+        except Exception as e:
+            logger.error("manager.parse.llm_error", error=str(e))
             companies = ["Cisco (Splunk/AppDynamics)", "DataDog", "Dynatrace"]
             tickers = ["CSCO", "DDOG", "DT"]
 
@@ -104,6 +115,7 @@ Respond with JSON only:
             },
         ]
 
+        logger.info("manager.parse.end", companies=companies, tickers=tickers)
         if callback:
             callback({"stage": "parse", "status": "done", "detail": f"Found {len(companies)} companies"})
 
@@ -126,6 +138,8 @@ Respond with JSON only:
             callback({"stage": "financial", "status": "running", "detail": "Fetching market data..."})
             callback({"stage": "competitor", "status": "pending", "detail": "Waiting..."})
 
+        logger.info("manager.execute.start", company_count=len(companies))
+
         # Run both agents in parallel
         financial_task = None
         competitor_task = None
@@ -143,11 +157,32 @@ Respond with JSON only:
         async def _noop():
             return None
 
-        financial_results, competitor_results = await asyncio.gather(
-            financial_task if financial_task else _noop(),
-            competitor_task if competitor_task else _noop(),
-        )
+        financial_results = None
+        competitor_results = None
 
+        try:
+            financial_results, competitor_results = await asyncio.wait_for(
+                asyncio.gather(
+                    financial_task if financial_task else _noop(),
+                    competitor_task if competitor_task else _noop(),
+                    return_exceptions=True,
+                ),
+                timeout=120,
+            )
+        except asyncio.TimeoutError:
+            logger.error("manager.execute.timeout")
+            financial_results = {"error": "Timeout", "response": ""}
+            competitor_results = {"error": "Timeout", "response": ""}
+
+        # Handle individual agent exceptions returned by gather(return_exceptions=True)
+        if isinstance(financial_results, BaseException):
+            logger.error("manager.execute.financial_error", error=str(financial_results))
+            financial_results = {"error": str(financial_results), "response": ""}
+        if isinstance(competitor_results, BaseException):
+            logger.error("manager.execute.competitor_error", error=str(competitor_results))
+            competitor_results = {"error": str(competitor_results), "response": ""}
+
+        logger.info("manager.execute.end")
         if callback:
             callback({"stage": "financial", "status": "done", "detail": "Financial analysis complete"})
             callback({"stage": "competitor", "status": "done", "detail": "Competitor research complete"})
@@ -169,15 +204,20 @@ Respond with JSON only:
         if callback:
             callback({"stage": "synthesize", "status": "running", "detail": "Writing final report..."})
 
-        # Generate the report
-        report = generate_report(
-            query=user_query,
-            companies=companies,
-            financial_data=financial_results,
-            competitor_data=competitor_results,
-            llm=llm,
-        )
+        logger.info("manager.synthesize.start")
+        try:
+            report = generate_report(
+                query=user_query,
+                companies=companies,
+                financial_data=financial_results,
+                competitor_data=competitor_results,
+                llm=llm,
+            )
+        except Exception as e:
+            logger.error("manager.synthesize.error", error=str(e))
+            report = f"# Error Generating Report\n\nAn error occurred during report synthesis: {e}"
 
+        logger.info("manager.synthesize.end")
         if callback:
             callback({"stage": "synthesize", "status": "done", "detail": "Report ready"})
 
@@ -232,32 +272,45 @@ async def run_manager_agent(
         Dict with keys: final_report, companies, tickers, financial_results,
         competitor_results, status.
     """
-    agent = get_manager_agent()
+    logger.info("manager_agent.run.start", query=query)
+    try:
+        agent = get_manager_agent()
 
-    # Initialize state
-    initial_state = {
-        "messages": [],
-        "user_query": query,
-        "companies": [],
-        "tickers": [],
-        "tasks": [],
-        "financial_results": None,
-        "competitor_results": None,
-        "final_report": "",
-        "status": "started",
-        "progress_callback": progress_callback,
-    }
+        # Initialize state
+        initial_state = {
+            "messages": [],
+            "user_query": query,
+            "companies": [],
+            "tickers": [],
+            "tasks": [],
+            "financial_results": None,
+            "competitor_results": None,
+            "final_report": "",
+            "status": "started",
+            "progress_callback": progress_callback,
+        }
 
-    # Run the agent
-    result = await agent.ainvoke(initial_state)
+        # Run the agent
+        result = await agent.ainvoke(initial_state)
 
-    return {
-        "final_report": result["final_report"],
-        "companies": result.get("companies", []),
-        "tickers": result.get("tickers", []),
-        "financial_results": result.get("financial_results"),
-        "competitor_results": result.get("competitor_results"),
-    }
+        logger.info("manager_agent.run.end")
+        return {
+            "final_report": result["final_report"],
+            "companies": result.get("companies", []),
+            "tickers": result.get("tickers", []),
+            "financial_results": result.get("financial_results"),
+            "competitor_results": result.get("competitor_results"),
+        }
+    except Exception as e:
+        logger.error("manager_agent.run.error", error=str(e))
+        return {
+            "final_report": f"Error: {e}",
+            "error": str(e),
+            "companies": [],
+            "tickers": [],
+            "financial_results": None,
+            "competitor_results": None,
+        }
 
 
 def extract_tool_call_summary(agent_output: dict) -> dict:
