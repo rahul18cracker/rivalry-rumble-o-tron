@@ -87,3 +87,51 @@ class TestGetCompanyComparison:
         result = get_company_comparison.invoke({"tickers": ["DDOG", "DT"]})
         assert "companies" in result
         assert len(result["companies"]) == 2
+
+
+@pytest.mark.unit
+class TestYfinanceRetryBehavior:
+    def test_transient_error_retries_and_succeeds(self):
+        """ConnectionError is retried — function succeeds on second call."""
+        mock_ticker = MagicMock()
+        mock_ticker.info = {
+            "shortName": "Datadog Inc.",
+            "marketCap": 45_000_000_000,
+            "totalRevenue": 2_100_000_000,
+            "revenueGrowth": 0.25,
+            "grossMargins": 0.78,
+            "operatingMargins": 0.05,
+            "sector": "Technology",
+            "industry": "Software—Application",
+            "currency": "USD",
+        }
+        with patch(
+            "src.tools.yfinance_tools.yf.Ticker",
+            side_effect=[ConnectionError("network error"), mock_ticker],
+        ):
+            result = get_company_financials.invoke({"ticker": "DDOG"})
+            assert "error" not in result
+            assert result["company_name"] == "Datadog Inc."
+
+    def test_permanent_error_not_retried(self):
+        """ValueError is not retried — immediately returns error dict."""
+        with patch(
+            "src.tools.yfinance_tools.yf.Ticker",
+            side_effect=ValueError("bad ticker format"),
+        ):
+            result = get_company_financials.invoke({"ticker": "DDOG"})
+            assert "error" in result
+            assert "bad ticker format" in result["error"]
+
+    def test_historical_transient_error_retries(self):
+        """ConnectionError in historical fetch is retried."""
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"shortName": "Test"}
+        mock_ticker.financials = pd.DataFrame()
+        with patch(
+            "src.tools.yfinance_tools.yf.Ticker",
+            side_effect=[ConnectionError("timeout"), mock_ticker],
+        ):
+            result = get_historical_revenue.invoke({"ticker": "TEST"})
+            assert "error" not in result
+            assert result["historical_revenue"] == []
