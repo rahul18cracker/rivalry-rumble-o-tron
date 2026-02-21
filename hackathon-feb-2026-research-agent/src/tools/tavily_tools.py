@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 
 from ..logging_config import get_logger
+from ..utils.retry import retry_transient
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +29,88 @@ def _get_client():
             raise ValueError("TAVILY_API_KEY environment variable not set")
         _tavily_client = TavilyClient(api_key=api_key)
     return _tavily_client
+
+
+def _parse_search_results(response: dict) -> tuple[list[dict], list[str]]:
+    """Extract results and sources from a Tavily search response."""
+    results = []
+    sources = []
+    for item in response.get("results", []):
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "content": item.get("content", ""),
+                "url": item.get("url", ""),
+            }
+        )
+        sources.append(item.get("url", ""))
+    return results, sources
+
+
+@retry_transient()
+def _search_company(company_name: str) -> dict[str, Any]:
+    """Search for company info via Tavily (retried on transient errors)."""
+    client = _get_client()
+    query = f"{company_name} company overview products services"
+    response = client.search(query=query, search_depth="advanced", max_results=5)
+    results, sources = _parse_search_results(response)
+    return {
+        "company": company_name,
+        "results": results,
+        "sources": sources,
+        "source": "tavily",
+    }
+
+
+@retry_transient()
+def _search_competitive(company_name: str, competitors: list[str] | None) -> dict[str, Any]:
+    """Search for competitive analysis via Tavily (retried on transient errors)."""
+    client = _get_client()
+    if competitors:
+        comp_str = " vs ".join(competitors)
+        query = f"{company_name} vs {comp_str} comparison competitive analysis"
+    else:
+        query = f"{company_name} competitive analysis market position strengths weaknesses"
+    response = client.search(query=query, search_depth="advanced", max_results=5)
+    results, sources = _parse_search_results(response)
+    return {
+        "company": company_name,
+        "competitors": competitors or [],
+        "results": results,
+        "sources": sources,
+        "source": "tavily",
+    }
+
+
+@retry_transient()
+def _search_product(company_name: str, product_category: str) -> dict[str, Any]:
+    """Search for product info via Tavily (retried on transient errors)."""
+    client = _get_client()
+    query = f"{company_name} {product_category} product features pricing"
+    response = client.search(query=query, search_depth="advanced", max_results=5)
+    results, sources = _parse_search_results(response)
+    return {
+        "company": company_name,
+        "product_category": product_category,
+        "results": results,
+        "sources": sources,
+        "source": "tavily",
+    }
+
+
+@retry_transient()
+def _search_trends(topic: str) -> dict[str, Any]:
+    """Search for market trends via Tavily (retried on transient errors)."""
+    client = _get_client()
+    query = f"{topic} market trends analysis forecast"
+    response = client.search(query=query, search_depth="advanced", max_results=5)
+    results, sources = _parse_search_results(response)
+    return {
+        "topic": topic,
+        "results": results,
+        "sources": sources,
+        "source": "tavily",
+    }
 
 
 @tool
@@ -55,34 +138,7 @@ def search_company_info(company_name: str) -> dict[str, Any]:
 
     logger.info("tavily.search_company_info", company=company_name)
     try:
-        client = _get_client()
-
-        query = f"{company_name} company overview products services"
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=5,
-        )
-
-        results = []
-        sources = []
-
-        for item in response.get("results", []):
-            results.append(
-                {
-                    "title": item.get("title", ""),
-                    "content": item.get("content", ""),
-                    "url": item.get("url", ""),
-                }
-            )
-            sources.append(item.get("url", ""))
-
-        return {
-            "company": company_name,
-            "results": results,
-            "sources": sources,
-            "source": "tavily",
-        }
+        return _search_company(company_name)
     except Exception as e:
         logger.error("tavily.search_company_info.error", company=company_name, error=str(e))
         return {
@@ -113,41 +169,7 @@ def search_competitive_analysis(company_name: str, competitors: list[str] | None
     """
     logger.info("tavily.search_competitive_analysis", company=company_name, competitors=competitors)
     try:
-        client = _get_client()
-
-        # Build search query
-        if competitors:
-            comp_str = " vs ".join(competitors)
-            query = f"{company_name} vs {comp_str} comparison competitive analysis"
-        else:
-            query = f"{company_name} competitive analysis market position strengths weaknesses"
-
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=5,
-        )
-
-        results = []
-        sources = []
-
-        for item in response.get("results", []):
-            results.append(
-                {
-                    "title": item.get("title", ""),
-                    "content": item.get("content", ""),
-                    "url": item.get("url", ""),
-                }
-            )
-            sources.append(item.get("url", ""))
-
-        return {
-            "company": company_name,
-            "competitors": competitors or [],
-            "results": results,
-            "sources": sources,
-            "source": "tavily",
-        }
+        return _search_competitive(company_name, competitors)
     except Exception as e:
         logger.error("tavily.search_competitive_analysis.error", company=company_name, error=str(e))
         return {
@@ -173,35 +195,7 @@ def search_product_info(company_name: str, product_category: str) -> dict[str, A
     """
     logger.info("tavily.search_product_info", company=company_name, category=product_category)
     try:
-        client = _get_client()
-
-        query = f"{company_name} {product_category} product features pricing"
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=5,
-        )
-
-        results = []
-        sources = []
-
-        for item in response.get("results", []):
-            results.append(
-                {
-                    "title": item.get("title", ""),
-                    "content": item.get("content", ""),
-                    "url": item.get("url", ""),
-                }
-            )
-            sources.append(item.get("url", ""))
-
-        return {
-            "company": company_name,
-            "product_category": product_category,
-            "results": results,
-            "sources": sources,
-            "source": "tavily",
-        }
+        return _search_product(company_name, product_category)
     except Exception as e:
         logger.error("tavily.search_product_info.error", company=company_name, error=str(e))
         return {
@@ -227,34 +221,7 @@ def search_market_trends(topic: str) -> dict[str, Any]:
     """
     logger.info("tavily.search_market_trends", topic=topic)
     try:
-        client = _get_client()
-
-        query = f"{topic} market trends analysis forecast"
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=5,
-        )
-
-        results = []
-        sources = []
-
-        for item in response.get("results", []):
-            results.append(
-                {
-                    "title": item.get("title", ""),
-                    "content": item.get("content", ""),
-                    "url": item.get("url", ""),
-                }
-            )
-            sources.append(item.get("url", ""))
-
-        return {
-            "topic": topic,
-            "results": results,
-            "sources": sources,
-            "source": "tavily",
-        }
+        return _search_trends(topic)
     except Exception as e:
         logger.error("tavily.search_market_trends.error", topic=topic, error=str(e))
         return {
