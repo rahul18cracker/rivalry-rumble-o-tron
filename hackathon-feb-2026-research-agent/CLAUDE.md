@@ -17,19 +17,20 @@ Multi-agent competitive research system built with LangGraph, LangChain, and Str
 src/agents/manager.py      — Orchestrator (error handling, timeout, partial failures)
 src/agents/financial.py    — yfinance tools (Number Cruncher)
 src/agents/competitor.py   — Tavily tools (Street Scout)
-src/tools/yfinance_tools.py — Input validation, logging
-src/tools/tavily_tools.py  — Input validation, logging
+src/tools/yfinance_tools.py — Input validation, retry, logging
+src/tools/tavily_tools.py  — Input validation, retry, logging
+src/utils/retry.py         — retry_transient() decorator (tenacity)
 src/report/generator.py    — LLM report synthesis with fallback
 src/report/decision_tree.py — Text tree for Behind the Scenes
-src/config.py              — Config and API key management
+src/config.py              — Config, API keys, LangSmith tracing
 src/errors.py              — Custom exception hierarchy
 src/logging_config.py      — structlog JSON configuration
 ui/app.py                  — Streamlit UI
 tests/conftest.py          — Shared fixtures, singleton reset, LLM/tool mocks
-tests/unit/               — 75 unit tests (all mocked, no API keys)
+tests/unit/               — 94 unit tests (all mocked, no API keys)
 tests/integration/        — 5 pipeline tests (full flow, partial failures)
-.github/workflows/ci.yml  — GitHub Actions: ruff lint → pytest 3.11/3.12
-docs/skills-learned.md     — 18 detailed technical learnings
+.env.example              — Documented env vars (including LangSmith)
+docs/skills-learned.md     — 20 detailed technical learnings
 docs/post-hackathon-roadmap.md — Observability plan
 SESSION.md                 — Session context and history
 ```
@@ -43,7 +44,7 @@ python -c "from src.config import get_config; print('OK' if not get_config().val
 streamlit run ui/app.py
 ```
 
-Requires `.env` with: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`.
+Requires `.env` with: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`. Optional: `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`, `LANGSMITH_PROJECT` for LangSmith tracing.
 
 ## Testing
 
@@ -90,8 +91,14 @@ ruff format --check src/ tests/
 16. **structlog for agents**: Use dotted event names (`manager.parse.start`, `financial_agent.run.error`) for easy grep filtering across concurrent agents.
 17. **ruff per-file-ignores**: Prompt template files have long string literals that can't be reformatted. Use `[tool.ruff.lint.per-file-ignores]` for E501 on those files.
 
+### Retry & Observability
+
+18. **Retry inner-helper pattern**: Can't stack `@retry` on `@tool` — extract API call into a plain function with `@retry_transient()`, keep `@tool` as thin validation + error-dict shell.
+19. **LangSmith tracing**: LangGraph auto-traces when `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` are set. No code changes in agents — just set env vars before agent creation.
+20. **GitHub Actions location**: Workflows must be at `.github/workflows/` relative to the **git repo root** — not in a subdirectory. Use `defaults.run.working-directory` for monorepo layouts.
+
 ## Remaining TODOs
 
 - Add caching for API responses
 - Consider 3rd Market Intelligence sub-agent
-- Production observability (LangSmith, cost tracking, quality scoring — see docs/post-hackathon-roadmap.md)
+- Production observability (cost tracking, quality scoring — see docs/post-hackathon-roadmap.md)

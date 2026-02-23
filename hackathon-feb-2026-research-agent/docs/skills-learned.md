@@ -422,3 +422,66 @@ select = ["E", "F", "I", "W"]  # errors, pyflakes, isort, warnings
 **Key Workflow**: `ruff check --fix` auto-fixes 90% of issues (import sorting, unused imports). `ruff format` handles the rest. Run both in CI as a fast-fail gate before tests.
 
 **Gotcha**: Multiline string literals (like prompt templates) can't be reformatted without breaking the content. Use per-file-ignores for E501 on those files.
+
+---
+
+## 19. Retry Decorator: Inner Helper Pattern with @tool
+
+**Problem**: LangChain's `@tool` decorator wraps the function into a `StructuredTool` object. Stacking `@retry` on top of `@tool` would retry the entire LangChain tool wrapper (including schema validation, input coercion, etc.), not just the API call. Also, if the `@tool` function catches exceptions to return error dicts, `@retry` never sees the exception.
+
+**Fix**: Extract the actual API call into an inner helper function and apply retry there:
+
+```python
+from src.utils.retry import retry_transient
+
+@retry_transient()
+def _fetch_financials(ticker: str) -> dict:
+    """Retried on transient errors."""
+    stock = yf.Ticker(ticker)
+    info = stock.info
+    return { ... }
+
+@tool
+def get_company_financials(ticker: str) -> dict:
+    """LangChain tool wrapper — handles validation + error dict fallback."""
+    if not ticker or not ticker.strip():
+        return {"error": "Empty ticker symbol", ...}
+    try:
+        return _fetch_financials(ticker)  # retried
+    except Exception as e:
+        return {"error": str(e), ...}     # final fallback
+```
+
+**Key Details**:
+- `retry_transient()` only retries `ConnectionError`, `TimeoutError`, `OSError` — NOT `ValueError`, `KeyError`, `TypeError`
+- Uses `tenacity` with `wait_exponential(multiplier=1, min=1, max=10)` and `stop_after_attempt(3)`
+- `reraise=True` so the final exception propagates to the `@tool` wrapper's except block
+- `before_sleep_log` logs each retry attempt at WARNING level
+
+**Lesson**: When using LangChain `@tool`, keep the decorator as a thin validation + error-handling shell. Put retryable logic in a separate function.
+
+---
+
+## 20. GitHub Actions Workflow Must Be at Repo Root
+
+**Problem**: CI workflow at `hackathon-feb-2026-research-agent/.github/workflows/ci.yml` was never triggered by GitHub Actions — no runs appeared on pushes or PRs.
+
+**Root Cause**: GitHub Actions **only** discovers workflow files at `.github/workflows/` relative to the **repository root**. If the git repo root is `/ai/` but the workflow is in a subdirectory, GitHub ignores it entirely. No error, no warning — just silence.
+
+**Fix**: Move the workflow to the repo root and use `defaults.run.working-directory`:
+
+```yaml
+# .github/workflows/ci.yml (at repo root)
+defaults:
+  run:
+    working-directory: hackathon-feb-2026-research-agent
+
+jobs:
+  lint:
+    steps:
+      - run: ruff check src/ tests/  # runs inside subdirectory
+```
+
+**Note**: The `codecov-action` `files` path is relative to the repo root (not the working directory), so use: `files: ./hackathon-feb-2026-research-agent/coverage.xml`
+
+**Lesson**: Always verify `git rev-parse --show-toplevel` matches where you think the repo root is. Monorepo or nested-project layouts are a common source of this issue.

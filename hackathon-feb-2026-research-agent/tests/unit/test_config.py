@@ -59,3 +59,85 @@ class TestConfig:
     def test_ticker_mapping_unknown_company(self):
         config = Config()
         assert config.get_ticker("UnknownCompany") is None
+
+
+@pytest.mark.unit
+class TestLangSmithTracing:
+    def test_configure_tracing_sets_env_vars(self):
+        config = Config()
+        config.langsmith_tracing = True
+        config.langsmith_api_key = "lsv2-test-key"
+        config.langsmith_project = "test-project"
+
+        # Clean up env first
+        for var in ["LANGCHAIN_TRACING_V2", "LANGCHAIN_API_KEY", "LANGSMITH_PROJECT"]:
+            os.environ.pop(var, None)
+
+        config.configure_tracing()
+
+        assert os.environ["LANGCHAIN_TRACING_V2"] == "true"
+        assert os.environ["LANGCHAIN_API_KEY"] == "lsv2-test-key"
+        assert os.environ["LANGSMITH_PROJECT"] == "test-project"
+
+        # Clean up
+        for var in ["LANGCHAIN_TRACING_V2", "LANGCHAIN_API_KEY", "LANGSMITH_PROJECT"]:
+            os.environ.pop(var, None)
+
+    def test_configure_tracing_noop_when_disabled(self):
+        config = Config()
+        config.langsmith_tracing = False
+        config.langsmith_api_key = "lsv2-test-key"
+
+        # Ensure vars are not set
+        for var in ["LANGCHAIN_TRACING_V2", "LANGCHAIN_API_KEY", "LANGSMITH_PROJECT"]:
+            os.environ.pop(var, None)
+
+        config.configure_tracing()
+
+        assert "LANGCHAIN_TRACING_V2" not in os.environ
+        assert "LANGCHAIN_API_KEY" not in os.environ
+
+    def test_configure_tracing_noop_when_key_missing(self):
+        config = Config()
+        config.langsmith_tracing = True
+        config.langsmith_api_key = ""
+
+        # Ensure vars are not set
+        for var in ["LANGCHAIN_TRACING_V2", "LANGCHAIN_API_KEY", "LANGSMITH_PROJECT"]:
+            os.environ.pop(var, None)
+
+        config.configure_tracing()
+
+        assert "LANGCHAIN_TRACING_V2" not in os.environ
+
+    def test_validate_warns_on_tracing_without_key(self, caplog):
+        config = Config()
+        config.anthropic_api_key = "present"
+        config.tavily_api_key = "present"
+        config.langsmith_tracing = True
+        config.langsmith_api_key = ""
+
+        errors = config.validate()
+        # No hard errors for LangSmith — just a warning
+        assert errors == []
+
+    def test_langsmith_defaults(self):
+        with patch.dict(os.environ, {}, clear=True):
+            config = Config()
+            assert config.langsmith_tracing is False
+            assert config.langsmith_api_key == ""
+            assert config.langsmith_project == "rivalry-rumble-o-tron"
+
+    def test_langsmith_loads_from_env(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LANGCHAIN_TRACING_V2": "true",
+                "LANGCHAIN_API_KEY": "lsv2-from-env",
+                "LANGSMITH_PROJECT": "my-project",
+            },
+        ):
+            config = Config()
+            assert config.langsmith_tracing is True
+            assert config.langsmith_api_key == "lsv2-from-env"
+            assert config.langsmith_project == "my-project"

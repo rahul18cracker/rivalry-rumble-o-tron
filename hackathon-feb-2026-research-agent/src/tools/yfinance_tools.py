@@ -6,6 +6,7 @@ import yfinance as yf
 from langchain_core.tools import tool
 
 from ..logging_config import get_logger
+from ..utils.retry import retry_transient
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,71 @@ def _format_percentage(num: float | None) -> str:
     if num is None:
         return "N/A"
     return f"{num * 100:.1f}%"
+
+
+@retry_transient()
+def _fetch_financials(ticker: str) -> dict[str, Any]:
+    """Fetch financial data from yfinance (retried on transient errors)."""
+    stock = yf.Ticker(ticker)
+    info = stock.info
+
+    return {
+        "company_name": info.get("shortName", ticker),
+        "ticker": ticker,
+        "market_cap": _format_large_number(info.get("marketCap")),
+        "market_cap_raw": info.get("marketCap"),
+        "revenue_ttm": _format_large_number(info.get("totalRevenue")),
+        "revenue_ttm_raw": info.get("totalRevenue"),
+        "revenue_growth_yoy": _format_percentage(info.get("revenueGrowth")),
+        "revenue_growth_yoy_raw": info.get("revenueGrowth"),
+        "gross_margin": _format_percentage(info.get("grossMargins")),
+        "gross_margin_raw": info.get("grossMargins"),
+        "operating_margin": _format_percentage(info.get("operatingMargins")),
+        "operating_margin_raw": info.get("operatingMargins"),
+        "sector": info.get("sector", "N/A"),
+        "industry": info.get("industry", "N/A"),
+        "currency": info.get("currency", "USD"),
+        "source": "yfinance",
+    }
+
+
+@retry_transient()
+def _fetch_historical(ticker: str, years: int) -> dict[str, Any]:
+    """Fetch historical revenue from yfinance (retried on transient errors)."""
+    stock = yf.Ticker(ticker)
+    info = stock.info
+    financials = stock.financials
+
+    historical = []
+
+    if financials is not None and not financials.empty:
+        # Get total revenue row if it exists
+        revenue_row = None
+        for row_name in ["Total Revenue", "Revenue"]:
+            if row_name in financials.index:
+                revenue_row = financials.loc[row_name]
+                break
+
+        if revenue_row is not None:
+            # Get the last N years
+            for i, (date, value) in enumerate(revenue_row.items()):
+                if i >= years:
+                    break
+                if value is not None and not (isinstance(value, float) and value != value):  # Check for NaN
+                    historical.append(
+                        {
+                            "year": date.year,
+                            "revenue": value,
+                            "revenue_formatted": _format_large_number(value),
+                        }
+                    )
+
+    return {
+        "company_name": info.get("shortName", ticker),
+        "ticker": ticker,
+        "historical_revenue": sorted(historical, key=lambda x: x["year"]),
+        "source": "yfinance",
+    }
 
 
 @tool
@@ -55,27 +121,7 @@ def get_company_financials(ticker: str) -> dict[str, Any]:
 
     logger.info("yfinance.get_financials", ticker=ticker)
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-
-        return {
-            "company_name": info.get("shortName", ticker),
-            "ticker": ticker,
-            "market_cap": _format_large_number(info.get("marketCap")),
-            "market_cap_raw": info.get("marketCap"),
-            "revenue_ttm": _format_large_number(info.get("totalRevenue")),
-            "revenue_ttm_raw": info.get("totalRevenue"),
-            "revenue_growth_yoy": _format_percentage(info.get("revenueGrowth")),
-            "revenue_growth_yoy_raw": info.get("revenueGrowth"),
-            "gross_margin": _format_percentage(info.get("grossMargins")),
-            "gross_margin_raw": info.get("grossMargins"),
-            "operating_margin": _format_percentage(info.get("operatingMargins")),
-            "operating_margin_raw": info.get("operatingMargins"),
-            "sector": info.get("sector", "N/A"),
-            "industry": info.get("industry", "N/A"),
-            "currency": info.get("currency", "USD"),
-            "source": "yfinance",
-        }
+        return _fetch_financials(ticker)
     except Exception as e:
         logger.error("yfinance.get_financials.error", ticker=ticker, error=str(e))
         return {
@@ -105,40 +151,7 @@ def get_historical_revenue(ticker: str, years: int = 3) -> dict[str, Any]:
 
     logger.info("yfinance.get_historical_revenue", ticker=ticker, years=years)
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        financials = stock.financials
-
-        historical = []
-
-        if financials is not None and not financials.empty:
-            # Get total revenue row if it exists
-            revenue_row = None
-            for row_name in ["Total Revenue", "Revenue"]:
-                if row_name in financials.index:
-                    revenue_row = financials.loc[row_name]
-                    break
-
-            if revenue_row is not None:
-                # Get the last N years
-                for i, (date, value) in enumerate(revenue_row.items()):
-                    if i >= years:
-                        break
-                    if value is not None and not (isinstance(value, float) and value != value):  # Check for NaN
-                        historical.append(
-                            {
-                                "year": date.year,
-                                "revenue": value,
-                                "revenue_formatted": _format_large_number(value),
-                            }
-                        )
-
-        return {
-            "company_name": info.get("shortName", ticker),
-            "ticker": ticker,
-            "historical_revenue": sorted(historical, key=lambda x: x["year"]),
-            "source": "yfinance",
-        }
+        return _fetch_historical(ticker, years)
     except Exception as e:
         logger.error("yfinance.get_historical_revenue.error", ticker=ticker, error=str(e))
         return {

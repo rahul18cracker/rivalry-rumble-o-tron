@@ -28,6 +28,9 @@ def main(query: str | None = None) -> str:
         print("\nPlease set required environment variables in .env file.")
         sys.exit(1)
 
+    # Enable LangSmith tracing if configured
+    config.configure_tracing()
+
     # Use default query if none provided
     if query is None:
         query = "Compare Cisco's observability portfolio (Splunk, AppDynamics) to DataDog and Dynatrace"

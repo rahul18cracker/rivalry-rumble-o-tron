@@ -1,7 +1,7 @@
 """Unit tests for Tavily tools — all external calls mocked."""
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -101,3 +101,38 @@ class TestGetClient:
             mod._tavily_client = None
             with pytest.raises((ValueError, Exception)):
                 _get_client()
+
+
+@pytest.mark.unit
+class TestTavilyRetryBehavior:
+    def test_transient_error_retries_and_succeeds(self):
+        """ConnectionError on client.search is retried — succeeds on second call."""
+        mock_client = MagicMock()
+        mock_client.search.side_effect = [
+            ConnectionError("network error"),
+            {"results": [{"title": "Retry Result", "content": "Worked after retry", "url": "https://example.com"}]},
+        ]
+        with patch("src.tools.tavily_tools._get_client", return_value=mock_client):
+            result = search_company_info.invoke({"company_name": "DataDog"})
+            assert "error" not in result
+            assert result["results"][0]["title"] == "Retry Result"
+            assert mock_client.search.call_count == 2
+
+    def test_permanent_error_not_retried(self):
+        """ValueError is not retried — returns error dict immediately."""
+        with patch("src.tools.tavily_tools._get_client", side_effect=ValueError("bad config")):
+            result = search_company_info.invoke({"company_name": "DataDog"})
+            assert "error" in result
+            assert "bad config" in result["error"]
+
+    def test_competitive_analysis_retries_on_transient(self):
+        """Competitive analysis search retries on transient errors."""
+        mock_client = MagicMock()
+        mock_client.search.side_effect = [
+            TimeoutError("timed out"),
+            {"results": [{"title": "Analysis", "content": "Competitive data", "url": "https://example.com"}]},
+        ]
+        with patch("src.tools.tavily_tools._get_client", return_value=mock_client):
+            result = search_competitive_analysis.invoke({"company_name": "DataDog"})
+            assert "error" not in result
+            assert mock_client.search.call_count == 2
