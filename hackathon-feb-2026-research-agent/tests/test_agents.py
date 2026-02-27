@@ -60,7 +60,14 @@ class TestPrompts:
         from src.prompts.competitor_prompt import COMPETITOR_SYSTEM_PROMPT
 
         assert COMPETITOR_SYSTEM_PROMPT is not None
-        assert "Competitor" in COMPETITOR_SYSTEM_PROMPT
+        assert "Competitive Intelligence" in COMPETITOR_SYSTEM_PROMPT
+
+    def test_market_intel_prompt_exists(self):
+        """Test that market intel prompt is defined."""
+        from src.prompts.market_intel_prompt import MARKET_INTEL_SYSTEM_PROMPT
+
+        assert MARKET_INTEL_SYSTEM_PROMPT is not None
+        assert "Market Intelligence" in MARKET_INTEL_SYSTEM_PROMPT
 
 
 class TestFinancialAgent:
@@ -97,6 +104,30 @@ class TestCompetitorAgent:
         from src.agents.competitor import run_competitor_agent
 
         assert run_competitor_agent is not None
+
+
+class TestMarketIntelAgent:
+    """Tests for market intelligence agent."""
+
+    def test_market_intel_agent_importable(self):
+        """Test that market intel agent can be imported."""
+        from src.agents.market_intel import run_market_intel_agent
+
+        assert run_market_intel_agent is not None
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("langchain_anthropic", reason="Anthropic not installed"),
+        reason="Requires langchain-anthropic",
+    )
+    def test_market_intel_agent_creates(self):
+        """Test that market intel agent can be created."""
+        from src.agents.market_intel import create_market_intel_agent
+
+        try:
+            agent = create_market_intel_agent()
+            assert agent is not None
+        except Exception as e:
+            assert "API" in str(e) or "key" in str(e).lower()
 
 
 class TestManagerAgent:
@@ -157,11 +188,13 @@ class TestAgentIntegration:
             run_manager_agent,
             run_financial_agent,
             run_competitor_agent,
+            run_market_intel_agent,
         )
 
         assert run_manager_agent is not None
         assert run_financial_agent is not None
         assert run_competitor_agent is not None
+        assert run_market_intel_agent is not None
 
     def test_tools_importable(self):
         """Test that all tools can be imported from package."""
@@ -170,12 +203,20 @@ class TestAgentIntegration:
             get_historical_revenue,
             search_company_info,
             search_competitive_analysis,
+            search_market_size,
+            search_industry_forecast,
+            search_recent_news,
+            search_analyst_sentiment,
         )
 
         assert get_company_financials is not None
         assert get_historical_revenue is not None
         assert search_company_info is not None
         assert search_competitive_analysis is not None
+        assert search_market_size is not None
+        assert search_industry_forecast is not None
+        assert search_recent_news is not None
+        assert search_analyst_sentiment is not None
 
 
 class TestEndToEnd:

@@ -21,6 +21,10 @@ REPORT_TEMPLATE = """# {title}
 
 {competitive_section}
 
+## Market Intelligence
+
+{market_intelligence_section}
+
 ## Key Insights
 
 {key_insights}

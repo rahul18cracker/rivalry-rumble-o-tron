@@ -3,5 +3,6 @@
 from .manager import run_manager_agent
 from .financial import run_financial_agent
 from .competitor import run_competitor_agent
+from .market_intel import run_market_intel_agent
 
-__all__ = ["run_manager_agent", "run_financial_agent", "run_competitor_agent"]
+__all__ = ["run_manager_agent", "run_financial_agent", "run_competitor_agent", "run_market_intel_agent"]

@@ -143,6 +143,81 @@ class TestTavilyTools:
         assert "Dynatrace" in result["competitors"]
 
 
+class TestMarketIntelTools:
+    """Tests for market intelligence tools."""
+
+    @pytest.fixture
+    def mock_tavily_client(self):
+        """Create a mock Tavily client."""
+        mock_client = MagicMock()
+        mock_client.search.return_value = {
+            "results": [
+                {
+                    "title": "Test Market Report",
+                    "content": "The observability market is valued at $20B.",
+                    "url": "https://example.com/market-report",
+                }
+            ]
+        }
+        return mock_client
+
+    @patch("src.tools.market_intel_tools._get_client")
+    def test_search_market_size(self, mock_get_client, mock_tavily_client):
+        """Test market size search."""
+        mock_get_client.return_value = mock_tavily_client
+
+        from src.tools.market_intel_tools import search_market_size
+
+        result = search_market_size.invoke({"market": "observability platform"})
+
+        assert isinstance(result, dict)
+        assert "market" in result
+        assert result["market"] == "observability platform"
+        assert "source" in result
+        assert result["source"] == "tavily"
+
+    @patch("src.tools.market_intel_tools._get_client")
+    def test_search_industry_forecast(self, mock_get_client, mock_tavily_client):
+        """Test industry forecast search."""
+        mock_get_client.return_value = mock_tavily_client
+
+        from src.tools.market_intel_tools import search_industry_forecast
+
+        result = search_industry_forecast.invoke({"market": "APM market"})
+
+        assert isinstance(result, dict)
+        assert "market" in result
+        assert result["source"] == "tavily"
+
+    @patch("src.tools.market_intel_tools._get_client")
+    def test_search_recent_news(self, mock_get_client, mock_tavily_client):
+        """Test recent news search."""
+        mock_get_client.return_value = mock_tavily_client
+
+        from src.tools.market_intel_tools import search_recent_news
+
+        result = search_recent_news.invoke({"company_name": "DataDog"})
+
+        assert isinstance(result, dict)
+        assert "company" in result
+        assert result["company"] == "DataDog"
+        assert result["source"] == "tavily"
+
+    @patch("src.tools.market_intel_tools._get_client")
+    def test_search_analyst_sentiment(self, mock_get_client, mock_tavily_client):
+        """Test analyst sentiment search."""
+        mock_get_client.return_value = mock_tavily_client
+
+        from src.tools.market_intel_tools import search_analyst_sentiment
+
+        result = search_analyst_sentiment.invoke({"company_name": "Dynatrace"})
+
+        assert isinstance(result, dict)
+        assert "company" in result
+        assert result["company"] == "Dynatrace"
+        assert result["source"] == "tavily"
+
+
 class TestToolIntegration:
     """Integration tests for tools working together."""
 
@@ -171,6 +246,20 @@ class TestToolIntegration:
         assert search_competitive_analysis is not None
         assert search_product_info is not None
         assert search_market_trends is not None
+
+    def test_market_intel_tools_importable(self):
+        """Test that market intel tools can be imported."""
+        from src.tools.market_intel_tools import (
+            search_market_size,
+            search_industry_forecast,
+            search_recent_news,
+            search_analyst_sentiment,
+        )
+
+        assert search_market_size is not None
+        assert search_industry_forecast is not None
+        assert search_recent_news is not None
+        assert search_analyst_sentiment is not None
 
 
 if __name__ == "__main__":

@@ -61,6 +61,34 @@ def sample_companies():
 
 
 @pytest.fixture
+def mock_market_intel_response():
+    """Mock market intelligence agent response."""
+    return {
+        "task": "Analyze market intelligence and trends",
+        "companies": ["DataDog", "Dynatrace", "Splunk"],
+        "response": """## Market Intelligence
+
+### Market Size
+The global observability market is estimated at $20B in 2024, growing at 12% CAGR.
+
+### Recent News
+- DataDog announced new AI-powered monitoring features
+- Dynatrace expanded partnership with major cloud providers
+- Cisco continues integrating Splunk into its security portfolio
+
+### Analyst Sentiment
+- DataDog: Buy consensus, PT $150
+- Dynatrace: Buy consensus, PT $60
+- Cisco: Hold consensus, PT $55""",
+        "message_count": 9,
+        "tool_calls": [
+            {"tool": "search_market_size", "args": {"market": "observability platform"}, "result_preview": "..."},
+            {"tool": "search_recent_news", "args": {"company_name": "DataDog"}, "result_preview": "..."},
+        ],
+    }
+
+
+@pytest.fixture
 def sample_tickers():
     """Sample ticker list for testing."""
     return ["DDOG", "DT", "CSCO"]

@@ -24,6 +24,10 @@ def _friendly_tool_name(tool: str) -> str:
         "search_competitive_analysis": "Competitive Analysis",
         "search_product_info": "Product Info Search",
         "search_market_trends": "Market Trends Search",
+        "search_market_size": "Market Size Estimates",
+        "search_industry_forecast": "Industry Forecast",
+        "search_recent_news": "Recent News",
+        "search_analyst_sentiment": "Analyst Sentiment",
     }
     return mapping.get(tool, tool.replace("_", " ").title())
 
@@ -42,6 +46,7 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     tickers = metadata.get("tickers", [])
     fin_calls = metadata.get("financial_tool_calls", [])
     comp_calls = metadata.get("competitor_tool_calls", [])
+    market_intel_calls = metadata.get("market_intel_tool_calls", [])
 
     lines = []
 
@@ -71,6 +76,16 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     lines.append(f"├── 🔍 Street Scout — {len(comp_calls)} tool call{'s' if len(comp_calls) != 1 else ''}")
     for i, tc in enumerate(comp_calls):
         is_last = (i == len(comp_calls) - 1)
+        prefix = "│   └── " if is_last else "│   ├── "
+        name = _friendly_tool_name(tc.get("tool", "?"))
+        args_str = _short_args(tc.get("args", {}))
+        lines.append(f"{prefix}🔧 {name}  ({args_str})")
+    lines.append("│")
+
+    # Market Intel Scout
+    lines.append(f"├── 📈 Market Intel Scout — {len(market_intel_calls)} tool call{'s' if len(market_intel_calls) != 1 else ''}")
+    for i, tc in enumerate(market_intel_calls):
+        is_last = (i == len(market_intel_calls) - 1)
         prefix = "│   └── " if is_last else "│   ├── "
         name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))
