@@ -87,7 +87,7 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     mi_suffix = "s" if mi_count != 1 else ""
     lines.append(f"├── 📈 Market Intel Scout — {mi_count} tool call{mi_suffix}")
     for i, tc in enumerate(market_intel_calls):
-        is_last = (i == len(market_intel_calls) - 1)
+        is_last = i == len(market_intel_calls) - 1
         prefix = "│   └── " if is_last else "│   ├── "
         name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))

@@ -18,6 +18,7 @@ def _get_client():
     global _tavily_client
     if _tavily_client is None:
         from tavily import TavilyClient
+
         api_key = os.getenv("TAVILY_API_KEY")
         if not api_key:
             raise ValueError("TAVILY_API_KEY environment variable not set")
@@ -53,11 +54,13 @@ def search_market_size(market: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -104,11 +107,13 @@ def search_industry_forecast(market: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -155,11 +160,13 @@ def search_recent_news(company_name: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {
@@ -206,11 +213,13 @@ def search_analyst_sentiment(company_name: str) -> dict[str, Any]:
         sources = []
 
         for item in response.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "content": item.get("content", ""),
-                "url": item.get("url", ""),
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                }
+            )
             sources.append(item.get("url", ""))
 
         return {

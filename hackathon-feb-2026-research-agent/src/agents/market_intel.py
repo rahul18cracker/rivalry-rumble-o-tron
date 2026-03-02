@@ -20,6 +20,7 @@ from ..tools.market_intel_tools import (
 
 class MarketIntelState(TypedDict):
     """State for market intelligence agent."""
+
     messages: Annotated[list, add_messages]
     companies: list[str]
 
@@ -51,11 +52,13 @@ def _extract_tool_calls(messages: list) -> list[dict]:
                 content = msg.content if hasattr(msg, "content") else str(msg)
                 if isinstance(content, str) and len(content) > 200:
                     content = content[:200] + "..."
-                tool_calls.append({
-                    "tool": info["tool"],
-                    "args": info["args"],
-                    "result_preview": content,
-                })
+                tool_calls.append(
+                    {
+                        "tool": info["tool"],
+                        "args": info["args"],
+                        "result_preview": content,
+                    }
+                )
     return tool_calls
 
 
@@ -146,10 +149,12 @@ async def run_market_intel_agent(task: str, companies: list[str] | None = None) 
     ]
 
     # Run the agent
-    result = await agent.ainvoke({
-        "messages": messages,
-        "companies": companies or [],
-    })
+    result = await agent.ainvoke(
+        {
+            "messages": messages,
+            "companies": companies or [],
+        }
+    )
 
     # Extract the final response
     final_message = result["messages"][-1]
@@ -169,4 +174,5 @@ async def run_market_intel_agent(task: str, companies: list[str] | None = None) 
 def run_market_intel_agent_sync(task: str, companies: list[str] | None = None) -> dict[str, Any]:
     """Synchronous wrapper for run_market_intel_agent."""
     import asyncio
+
     return asyncio.run(run_market_intel_agent(task, companies))
