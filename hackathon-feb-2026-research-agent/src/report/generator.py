@@ -16,6 +16,7 @@ def generate_report(
     companies: list[str],
     financial_data: dict | None,
     competitor_data: dict | None,
+    market_intel_data: dict | None = None,
     llm: Any = None,
 ) -> str:
     """
@@ -26,6 +27,7 @@ def generate_report(
         companies: List of companies analyzed
         financial_data: Output from financial agent
         competitor_data: Output from competitor agent
+        market_intel_data: Output from market intelligence agent
         llm: LLM instance for synthesis (optional)
 
     Returns:
@@ -40,6 +42,10 @@ def generate_report(
     if competitor_data and "response" in competitor_data:
         competitor_response = competitor_data["response"]
 
+    market_intel_response = ""
+    if market_intel_data and "response" in market_intel_data:
+        market_intel_response = market_intel_data["response"]
+
     # If we have an LLM, use it to synthesize a proper report
     if llm is not None:
         return _generate_with_llm(
@@ -47,6 +53,7 @@ def generate_report(
             companies=companies,
             financial_response=financial_response,
             competitor_response=competitor_response,
+            market_intel_response=market_intel_response,
             llm=llm,
         )
 
@@ -56,6 +63,7 @@ def generate_report(
         companies=companies,
         financial_response=financial_response,
         competitor_response=competitor_response,
+        market_intel_response=market_intel_response,
     )
 
 
@@ -64,6 +72,7 @@ def _generate_with_llm(
     companies: list[str],
     financial_response: str,
     competitor_response: str,
+    market_intel_response: str,
     llm: Any,
 ) -> str:
     """Generate report using LLM to synthesize agent outputs."""
@@ -80,11 +89,14 @@ Companies Analyzed: {", ".join(companies)}
 === COMPETITOR AGENT OUTPUT ===
 {competitor_response}
 
+=== MARKET INTELLIGENCE AGENT OUTPUT ===
+{market_intel_response}
+
 === INSTRUCTIONS ===
 Create a comprehensive markdown research report with these sections:
 
 1. **Executive Summary** (2-3 paragraphs)
-   - Key findings from both financial and competitive analysis
+   - Key findings from financial, competitive, and market intelligence analysis
    - Main takeaways for the reader
 
 2. **Companies Analyzed** (table format)
@@ -101,10 +113,16 @@ Create a comprehensive markdown research report with these sections:
    - Strengths and weaknesses for each company
    - Key differentiators
 
-5. **Key Insights** (numbered list)
+5. **Market Intelligence**
+   - Market size and growth forecasts
+   - Recent news and developments
+   - Analyst sentiment and outlook
+   - Key industry trends
+
+6. **Key Insights** (numbered list)
    - 3-5 actionable insights from the research
 
-6. **Sources**
+7. **Sources**
    - List all sources mentioned in agent outputs
 
 Format the report in clean markdown. Use tables where appropriate.
@@ -124,6 +142,7 @@ Include the date: *Generated: {datetime.now().strftime("%Y-%m-%d")} | Research A
             companies=companies,
             financial_response=financial_response,
             competitor_response=competitor_response,
+            market_intel_response=market_intel_response,
         )
 
 
@@ -132,6 +151,7 @@ def _generate_basic_report(
     companies: list[str],
     financial_response: str,
     competitor_response: str,
+    market_intel_response: str,
 ) -> str:
     """Generate a basic report without LLM synthesis."""
 
@@ -154,6 +174,10 @@ def _generate_basic_report(
 ## Competitive Analysis
 
 {competitor_response if competitor_response else "*Competitive data not available*"}
+
+## Market Intelligence
+
+{market_intel_response if market_intel_response else "*Market intelligence data not available*"}
 
 ## Sources
 

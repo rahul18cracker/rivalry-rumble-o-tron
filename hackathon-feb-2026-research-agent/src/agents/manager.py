@@ -12,6 +12,7 @@ from ..logging_config import get_logger
 from ..report.generator import generate_report
 from .competitor import run_competitor_agent
 from .financial import run_financial_agent
+from .market_intel import run_market_intel_agent
 
 logger = get_logger(__name__)
 
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 class ResearchTask(TypedDict):
     """A single research task."""
 
-    agent: Literal["financial", "competitor"]
+    agent: Literal["financial", "competitor", "market_intel"]
     task: str
     companies: list[str]
     tickers: list[str]
@@ -35,6 +36,7 @@ class ManagerState(TypedDict):
     tasks: list[ResearchTask]
     financial_results: dict | None
     competitor_results: dict | None
+    market_intel_results: dict | None
     final_report: str
     status: str
     progress_callback: Any | None
@@ -113,6 +115,12 @@ Respond with JSON only:
                 "companies": companies,
                 "tickers": tickers,
             },
+            {
+                "agent": "market_intel",
+                "task": f"Analyze market intelligence and trends for: {', '.join(companies)}",
+                "companies": companies,
+                "tickers": tickers,
+            },
         ]
 
         logger.info("manager.parse.end", companies=companies, tickers=tickers)
@@ -137,34 +145,37 @@ Respond with JSON only:
         if callback:
             callback({"stage": "financial", "status": "running", "detail": "Fetching market data..."})
             callback({"stage": "competitor", "status": "pending", "detail": "Waiting..."})
+            callback({"stage": "market_intel", "status": "pending", "detail": "Waiting..."})
 
         logger.info("manager.execute.start", company_count=len(companies))
 
-        # Run both agents in parallel
+        # Run all agents in parallel
         financial_task = None
         competitor_task = None
+        market_intel_task = None
 
         for task in tasks:
             if task["agent"] == "financial":
                 financial_task = run_financial_agent(task["task"], tickers)
             elif task["agent"] == "competitor":
                 competitor_task = run_competitor_agent(task["task"], companies)
+            elif task["agent"] == "market_intel":
+                market_intel_task = run_market_intel_agent(task["task"], companies)
 
-        # Start both concurrently
+        # Start all concurrently
         if callback:
             callback({"stage": "competitor", "status": "running", "detail": "Searching competitive landscape..."})
+            callback({"stage": "market_intel", "status": "running", "detail": "Scanning market trends..."})
 
         async def _noop():
             return None
 
-        financial_results = None
-        competitor_results = None
-
         try:
-            financial_results, competitor_results = await asyncio.wait_for(
+            financial_results, competitor_results, market_intel_results = await asyncio.wait_for(
                 asyncio.gather(
                     financial_task if financial_task else _noop(),
                     competitor_task if competitor_task else _noop(),
+                    market_intel_task if market_intel_task else _noop(),
                     return_exceptions=True,
                 ),
                 timeout=120,
@@ -173,6 +184,7 @@ Respond with JSON only:
             logger.error("manager.execute.timeout")
             financial_results = {"error": "Timeout", "response": ""}
             competitor_results = {"error": "Timeout", "response": ""}
+            market_intel_results = {"error": "Timeout", "response": ""}
 
         # Handle individual agent exceptions returned by gather(return_exceptions=True)
         if isinstance(financial_results, BaseException):
@@ -181,15 +193,20 @@ Respond with JSON only:
         if isinstance(competitor_results, BaseException):
             logger.error("manager.execute.competitor_error", error=str(competitor_results))
             competitor_results = {"error": str(competitor_results), "response": ""}
+        if isinstance(market_intel_results, BaseException):
+            logger.error("manager.execute.market_intel_error", error=str(market_intel_results))
+            market_intel_results = {"error": str(market_intel_results), "response": ""}
 
         logger.info("manager.execute.end")
         if callback:
             callback({"stage": "financial", "status": "done", "detail": "Financial analysis complete"})
             callback({"stage": "competitor", "status": "done", "detail": "Competitor research complete"})
+            callback({"stage": "market_intel", "status": "done", "detail": "Market intelligence complete"})
 
         return {
             "financial_results": financial_results,
             "competitor_results": competitor_results,
+            "market_intel_results": market_intel_results,
             "status": "tasks_completed",
         }
 
@@ -199,6 +216,7 @@ Respond with JSON only:
         companies = state["companies"]
         financial_results = state["financial_results"]
         competitor_results = state["competitor_results"]
+        market_intel_results = state["market_intel_results"]
         callback = state.get("progress_callback")
 
         if callback:
@@ -211,6 +229,7 @@ Respond with JSON only:
                 companies=companies,
                 financial_data=financial_results,
                 competitor_data=competitor_results,
+                market_intel_data=market_intel_results,
                 llm=llm,
             )
         except Exception as e:
@@ -285,6 +304,7 @@ async def run_manager_agent(
             "tasks": [],
             "financial_results": None,
             "competitor_results": None,
+            "market_intel_results": None,
             "final_report": "",
             "status": "started",
             "progress_callback": progress_callback,
@@ -300,6 +320,7 @@ async def run_manager_agent(
             "tickers": result.get("tickers", []),
             "financial_results": result.get("financial_results"),
             "competitor_results": result.get("competitor_results"),
+            "market_intel_results": result.get("market_intel_results"),
         }
     except Exception as e:
         logger.error("manager_agent.run.error", error=str(e))
@@ -310,6 +331,7 @@ async def run_manager_agent(
             "tickers": [],
             "financial_results": None,
             "competitor_results": None,
+            "market_intel_results": None,
         }
 
 
@@ -317,9 +339,11 @@ def extract_tool_call_summary(agent_output: dict) -> dict:
     """Extract a lean summary of tool calls suitable for UI metadata."""
     fin = agent_output.get("financial_results") or {}
     comp = agent_output.get("competitor_results") or {}
+    market = agent_output.get("market_intel_results") or {}
     return {
         "financial_tool_calls": fin.get("tool_calls", []),
         "competitor_tool_calls": comp.get("tool_calls", []),
+        "market_intel_tool_calls": market.get("tool_calls", []),
     }
 
 

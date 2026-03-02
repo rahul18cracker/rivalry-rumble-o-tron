@@ -43,10 +43,11 @@ PIPELINE_STAGES = [
     {"key": "parse", "label": "Reading the matchup card", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
     {"key": "financial", "label": "Number Cruncher", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
     {"key": "competitor", "label": "Street Scout", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
+    {"key": "market_intel", "label": "Market Intel Scout", "icon_pending": "⬜", "icon_running": "📈", "icon_done": "✅"},
     {"key": "synthesize", "label": "Writing the verdict", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
 ]
 
-STAGE_PROGRESS = {"parse": 0.15, "financial": 0.50, "competitor": 0.50, "synthesize": 0.85}
+STAGE_PROGRESS = {"parse": 0.15, "financial": 0.40, "competitor": 0.40, "market_intel": 0.40, "synthesize": 0.85}
 
 # Funky status quips shown while each stage is running (cycled by poll tick)
 STAGE_QUIPS = {
@@ -63,6 +64,11 @@ STAGE_QUIPS = {
         "Scouting the competition...",
         "Reading the industry gossip...",
         "Gathering street intel...",
+    ],
+    "market_intel": [
+        "Scanning market trends...",
+        "Digging into analyst reports...",
+        "Tracking the latest headlines...",
     ],
     "synthesize": [
         "Brewing the final verdict...",
@@ -158,13 +164,14 @@ def display_chat_history():
                     elapsed = meta.get("elapsed", 0)
                     fin = meta.get("financial_results") or {}
                     comp = meta.get("competitor_results") or {}
+                    market = meta.get("market_intel_results") or {}
 
                     st.markdown(f"**Companies identified:** {', '.join(companies)}")
                     st.markdown(f"**Tickers analyzed:** {', '.join(tickers)}")
                     st.markdown(f"**Completed in:** {int(elapsed)}s")
                     st.divider()
 
-                    col_fin, col_comp = st.columns(2)
+                    col_fin, col_comp, col_market = st.columns(3)
                     with col_fin:
                         st.markdown("**📊 Number Cruncher**")
                         st.caption(f"LLM round-trips: {fin.get('message_count', '?')}")
@@ -177,10 +184,17 @@ def display_chat_history():
                         if comp.get("companies"):
                             st.caption(f"Companies: {', '.join(comp['companies'])}")
 
+                    with col_market:
+                        st.markdown("**📈 Market Intel Scout**")
+                        st.caption(f"LLM round-trips: {market.get('message_count', '?')}")
+                        if market.get("companies"):
+                            st.caption(f"Companies: {', '.join(market['companies'])}")
+
                     # Decision tree visualization
                     fin_tc = meta.get("financial_tool_calls", [])
                     comp_tc = meta.get("competitor_tool_calls", [])
-                    if fin_tc or comp_tc:
+                    market_tc = meta.get("market_intel_tool_calls", [])
+                    if fin_tc or comp_tc or market_tc:
                         st.divider()
                         st.markdown("**🌳 Decision Tree**")
                         tree_md = build_decision_tree_markdown(meta)
@@ -319,6 +333,7 @@ def process_query(query: str):
             # Store metadata for "Behind the Scenes" expander (survives rerun)
             fin = agent_output.get("financial_results") or {}
             comp = agent_output.get("competitor_results") or {}
+            market_intel = agent_output.get("market_intel_results") or {}
             tool_summary = extract_tool_call_summary(agent_output)
             # Strip the large response text to keep session state lean
             metadata = {
@@ -333,8 +348,13 @@ def process_query(query: str):
                     "message_count": comp.get("message_count"),
                     "companies": comp.get("companies"),
                 },
+                "market_intel_results": {
+                    "message_count": market_intel.get("message_count"),
+                    "companies": market_intel.get("companies"),
+                },
                 "financial_tool_calls": tool_summary["financial_tool_calls"],
                 "competitor_tool_calls": tool_summary["competitor_tool_calls"],
+                "market_intel_tool_calls": tool_summary["market_intel_tool_calls"],
             }
 
             # Add to message history

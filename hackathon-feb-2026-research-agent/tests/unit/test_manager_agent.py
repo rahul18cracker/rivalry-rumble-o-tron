@@ -9,25 +9,32 @@ from src.agents.manager import extract_tool_call_summary
 
 @pytest.mark.unit
 class TestExtractToolCallSummary:
-    def test_extracts_from_both_agents(self, mock_financial_response, mock_competitor_response):
+    def test_extracts_from_all_agents(
+        self, mock_financial_response, mock_competitor_response, mock_market_intel_response
+    ):
         output = {
             "financial_results": mock_financial_response,
             "competitor_results": mock_competitor_response,
+            "market_intel_results": mock_market_intel_response,
         }
         summary = extract_tool_call_summary(output)
         assert len(summary["financial_tool_calls"]) == 1
         assert len(summary["competitor_tool_calls"]) == 1
+        assert len(summary["market_intel_tool_calls"]) == 2
 
     def test_handles_none_results(self):
         summary = extract_tool_call_summary({})
         assert summary["financial_tool_calls"] == []
         assert summary["competitor_tool_calls"] == []
+        assert summary["market_intel_tool_calls"] == []
 
 
 @pytest.mark.unit
 class TestRunManagerAgent:
     @pytest.mark.asyncio
-    async def test_returns_complete_dict(self, mock_run_financial_agent, mock_run_competitor_agent, mock_llm):
+    async def test_returns_complete_dict(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent, mock_llm
+    ):
         with patch("src.agents.manager.get_config") as mock_cfg:
             mock_cfg.return_value.model_name = "test"
             mock_cfg.return_value.model_temperature = 0.0
@@ -63,7 +70,9 @@ class TestRunManagerAgent:
             assert "Error" in result["final_report"] or "fatal" in result["final_report"]
 
     @pytest.mark.asyncio
-    async def test_parse_falls_back_on_json_error(self, mock_run_financial_agent, mock_run_competitor_agent):
+    async def test_parse_falls_back_on_json_error(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent
+    ):
         bad_llm = MagicMock()
         bad_llm.invoke.return_value.content = "not valid json"
 
@@ -86,7 +95,9 @@ class TestRunManagerAgent:
                 assert len(result["companies"]) == 3  # default fallback
 
     @pytest.mark.asyncio
-    async def test_parse_falls_back_on_llm_error(self, mock_run_financial_agent, mock_run_competitor_agent):
+    async def test_parse_falls_back_on_llm_error(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent
+    ):
         failing_llm = MagicMock()
         # First call (parse) raises, subsequent calls (synthesize) succeed
         failing_llm.invoke.side_effect = [
@@ -113,7 +124,9 @@ class TestRunManagerAgent:
                 assert len(result["companies"]) == 3
 
     @pytest.mark.asyncio
-    async def test_handles_financial_agent_failure(self, mock_run_competitor_agent, mock_llm):
+    async def test_handles_financial_agent_failure(
+        self, mock_run_competitor_agent, mock_run_market_intel_agent, mock_llm
+    ):
         """If the financial agent fails, the report is still generated with competitor data."""
         failing_fin = AsyncMock(side_effect=Exception("financial down"))
 
@@ -137,7 +150,9 @@ class TestRunManagerAgent:
             assert "final_report" in result
 
     @pytest.mark.asyncio
-    async def test_handles_competitor_agent_failure(self, mock_run_financial_agent, mock_llm):
+    async def test_handles_competitor_agent_failure(
+        self, mock_run_financial_agent, mock_run_market_intel_agent, mock_llm
+    ):
         """If the competitor agent fails, the report is still generated with financial data."""
         failing_comp = AsyncMock(side_effect=Exception("competitor down"))
 
@@ -160,7 +175,9 @@ class TestRunManagerAgent:
             assert "final_report" in result
 
     @pytest.mark.asyncio
-    async def test_progress_callback_fires(self, mock_run_financial_agent, mock_run_competitor_agent, mock_llm):
+    async def test_progress_callback_fires(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent, mock_llm
+    ):
         callback = MagicMock()
 
         with (
@@ -183,4 +200,5 @@ class TestRunManagerAgent:
             stages = {call.args[0]["stage"] for call in callback.call_args_list}
             assert "parse" in stages
             assert "financial" in stages
+            assert "market_intel" in stages
             assert "synthesize" in stages
