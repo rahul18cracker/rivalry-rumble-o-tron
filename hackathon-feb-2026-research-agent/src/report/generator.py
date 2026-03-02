@@ -142,6 +142,7 @@ Include the date: *Generated: {datetime.now().strftime("%Y-%m-%d")} | Research A
             companies=companies,
             financial_response=financial_response,
             competitor_response=competitor_response,
+            market_intel_response=market_intel_response,
         )
 
 

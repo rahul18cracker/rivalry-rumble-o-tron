@@ -72,12 +72,15 @@ class TestGenerateBasicReport:
             companies=["DataDog"],
             financial_response="Revenue: $2.1B",
             competitor_response="Market leader in APM",
+            market_intel_response="Market size $20B, growing 12% CAGR",
         )
         assert "Research Query" in report
         assert "Financial Analysis" in report
         assert "Competitive Analysis" in report
+        assert "Market Intelligence" in report
         assert "Revenue: $2.1B" in report
         assert "Market leader in APM" in report
+        assert "Market size $20B" in report
 
     def test_empty_responses_show_not_available(self):
         report = _generate_basic_report(
@@ -85,6 +88,7 @@ class TestGenerateBasicReport:
             companies=[],
             financial_response="",
             competitor_response="",
+            market_intel_response="",
         )
         assert "not available" in report
 
