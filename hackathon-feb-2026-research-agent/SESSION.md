@@ -1,19 +1,29 @@
 # Rivalry Rumble-o-Tron - Session Context
 
-## Last Session: 2026-02-17 (Session 3 — Decision Tree & Observability Plan)
+## Last Session: 2026-02-20 (Session 5 — Retry with Backoff + LangSmith Tracing)
 
 ### What Was Accomplished
 
-1. **Decision Tree Visualization** — Plain-text tree rendered via `st.code()` in the Behind the Scenes expander, showing full pipeline: User Query → Parse → parallel Number Cruncher + Street Scout (with every tool call listed) → Verdict. Initially built as Graphviz DOT but replaced with text tree for readability.
-2. **Tool Call Extraction** — `_extract_tool_calls()` function in both sub-agents walks LangGraph message history, extracts tool name, arguments, and result preview from AIMessage/ToolMessage pairs
-3. **Manager Return Enhancement** — `extract_tool_call_summary()` helper passes tool call logs from sub-agents through to the UI metadata
-4. **Post-Hackathon Observability Plan** — Comprehensive 5-section plan added to `docs/post-hackathon-roadmap.md` covering LangSmith/LangFuse, error classification, cost monitoring, and quality scoring
+1. **Retry with Exponential Backoff** — Created `src/utils/retry.py` with a `retry_transient()` decorator using tenacity. Retries `ConnectionError`, `TimeoutError`, `OSError` up to 3 times with exponential backoff (1–10s). Does NOT retry permanent errors (`ValueError`, `KeyError`, `TypeError`).
+2. **Tool Function Refactoring** — Extracted API call logic from `@tool`-decorated functions into inner helpers (`_fetch_financials`, `_fetch_historical`, `_search_company`, `_search_competitive`, `_search_product`, `_search_trends`) wrapped with `@retry_transient()`. The `@tool` wrappers handle input validation and error dict fallback.
+3. **LangSmith Tracing Support** — Added optional `langsmith_tracing`, `langsmith_api_key`, `langsmith_project` config fields loaded from env vars. `configure_tracing()` method sets the env vars LangGraph/LangChain need — zero code changes in agents.
+4. **CI Workflow Fix** — Moved `.github/workflows/ci.yml` from the project subdirectory to the git repo root (where GitHub Actions looks). Added `defaults.run.working-directory: hackathon-feb-2026-research-agent`.
+5. **19 New Tests** — 7 retry decorator tests, 3 yfinance retry tests, 3 tavily retry tests, 6 LangSmith config tests. Total: 99 tests, 81% coverage.
+6. **Updated .env.example** — Documented all supported env vars including optional LangSmith ones.
+
+### Branch & PR
+
+- **Branch**: `feature/retry-and-langsmith`
+- **PR**: "Add retry with backoff and LangSmith tracing" → master
+- **Status**: Pushed, PR created, CI should now trigger (after workflow location fix)
 
 ### Previous Sessions
 
 - **2026-02-13**: Full project implementation, all agents validated, orchestration tested
 - **2026-02-17 (Session 1)**: Progress indicators, async fix, skills-learned doc
 - **2026-02-17 (Session 2)**: Rebranded to "Rivalry Rumble-o-Tron", example query cards, funky quips, Behind the Scenes expander, parallel agent execution
+- **2026-02-17 (Session 3)**: Decision tree visualization, tool call extraction, observability roadmap
+- **2026-02-20 (Session 4)**: Error handling, structured logging, 80 tests, CI pipeline
 
 ### Validation Results
 
@@ -32,10 +42,19 @@
 | Decision Tree | ✅ | Text tree in Behind the Scenes (st.code) |
 | Tool Call Extraction | ✅ | Both sub-agents extract tool logs |
 | Brand / Theme | ✅ | "Rivalry Rumble-o-Tron" throughout |
+| Error Handling | ✅ | LLM fallbacks, timeout, partial failures |
+| Structured Logging | ✅ | structlog JSON across all modules |
+| Retry with Backoff | ✅ | tenacity on all tool API calls |
+| LangSmith Tracing | ✅ | Optional, env-var driven, zero agent changes |
+| Unit Tests | ✅ | 94 tests, all mocked, no API keys needed |
+| Integration Tests | ✅ | 5 pipeline tests (happy + failure paths) |
+| Coverage | ✅ | 81% (threshold: 70%) |
+| Lint | ✅ | ruff check + format clean |
+| CI Pipeline | ✅ | GitHub Actions at repo root, lint + test on 3.11/3.12 |
 
 ### Skills Learned
 
-See [docs/skills-learned.md](docs/skills-learned.md) for detailed technical learnings (12 items).
+See [docs/skills-learned.md](docs/skills-learned.md) for detailed technical learnings (20 items).
 
 ### Quick Resume Commands
 
@@ -59,14 +78,26 @@ streamlit run ui/app.py
 2. [x] Add progress indicators to UI
 3. [x] UI refinement (brand, cards, quips, activity log)
 4. [x] Observability / decision tree visualization
-5. [ ] Test error handling (missing keys, API failures)
-6. [ ] Add caching for API responses
-7. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
-8. [ ] Production observability (LangSmith, cost tracking, quality scoring — see post-hackathon-roadmap.md)
+5. [x] Error handling (missing keys, API failures, timeouts, partial failures)
+6. [x] Structured logging (structlog JSON)
+7. [x] Comprehensive test suite (80 tests, 80% coverage)
+8. [x] CI pipeline (GitHub Actions: lint + test on 3.11/3.12)
+9. [x] Retry with exponential backoff on transient API failures
+10. [x] LangSmith tracing support (optional, env-var driven)
+11. [ ] Add caching for API responses
+12. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
+13. [ ] Production observability (cost tracking, quality scoring — see post-hackathon-roadmap.md)
 
 ### Git Log
 
 ```
+94c7f36 Move CI workflow to repo root so GitHub Actions can discover it
+9ccec41 Add retry with exponential backoff for tool functions and LangSmith tracing support
+de890e1 Merge pull request #1 from rahul18cracker/feature/stabilization-testing-ci
+70a73ad Update session context and skills learned for stabilization work
+b84ae61 Add error handling, structured logging, tests, and CI pipeline
+c689f07 Add CLAUDE.md with project context and technical learnings
+a0c22ff Update session context and skills for text tree + demo prep
 bd83ce9 Replace Graphviz decision tree with readable text tree
 1270d33 Add observability roadmap and update session context
 5122e0c Add decision tree visualization to Behind the Scenes
@@ -89,26 +120,42 @@ afeb679 Add session context and update debug guides with learnings
 hackathon-feb-2026-research-agent/
 ├── src/
 │   ├── agents/
-│   │   ├── manager.py      # Orchestrator (structured callbacks, asyncio.gather)
+│   │   ├── manager.py      # Orchestrator (error handling, timeout, partial failures)
 │   │   ├── financial.py    # yfinance tools (Number Cruncher)
 │   │   └── competitor.py   # Tavily tools (Street Scout)
 │   ├── tools/
-│   │   ├── yfinance_tools.py
-│   │   └── tavily_tools.py
+│   │   ├── yfinance_tools.py  # Input validation, retry, logging
+│   │   └── tavily_tools.py    # Input validation, retry, logging
+│   ├── utils/
+│   │   └── retry.py           # retry_transient() decorator (tenacity)
 │   ├── prompts/
 │   ├── report/
-│   │   ├── generator.py       # LLM-powered report synthesis
-│   │   └── decision_tree.py   # Text tree generation for Behind the Scenes
-│   ├── config.py
+│   │   ├── generator.py       # LLM synthesis with fallback
+│   │   └── decision_tree.py   # Text tree for Behind the Scenes
+│   ├── config.py              # Config, API keys, LangSmith tracing
+│   ├── errors.py              # Custom exception hierarchy
+│   ├── logging_config.py      # structlog JSON configuration
 │   └── main.py
 ├── ui/
 │   └── app.py              # Streamlit UI (Rivalry Rumble-o-Tron)
 ├── tests/
+│   ├── conftest.py         # Shared fixtures, singleton reset
+│   ├── unit/               # 94 unit tests (all mocked)
+│   │   ├── test_retry.py          # Retry decorator tests
+│   │   ├── test_config.py         # Config + LangSmith tracing tests
+│   │   ├── test_yfinance_tools.py # Including retry behavior
+│   │   ├── test_tavily_tools.py   # Including retry behavior
+│   │   └── ...
+│   └── integration/        # 5 pipeline tests
 ├── docs/
 │   ├── hackathon-plan.md
 │   ├── post-hackathon-roadmap.md
-│   └── skills-learned.md
+│   └── skills-learned.md   # 20 technical learnings
 ├── venv/
+├── pyproject.toml          # tenacity, dev deps, pytest markers, ruff config
 ├── .env                    # API keys (not committed)
-└── requirements.txt
+├── .env.example            # Documented env vars including LangSmith
+└── CLAUDE.md               # Project context for AI assistants
 ```
+
+Note: `.github/workflows/ci.yml` is at the **git repo root** (`/ai/.github/workflows/ci.yml`), NOT inside the project subdirectory. This is required for GitHub Actions to discover it.

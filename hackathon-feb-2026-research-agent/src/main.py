@@ -1,9 +1,10 @@
 """Main entry point for research agent team."""
 
-import sys
 import asyncio
-from .config import get_config
+import sys
+
 from .agents import run_manager_agent
+from .config import get_config
 
 
 def main(query: str | None = None) -> str:
@@ -26,6 +27,9 @@ def main(query: str | None = None) -> str:
             print(f"  - {error}")
         print("\nPlease set required environment variables in .env file.")
         sys.exit(1)
+
+    # Enable LangSmith tracing if configured
+    config.configure_tracing()
 
     # Use default query if none provided
     if query is None:

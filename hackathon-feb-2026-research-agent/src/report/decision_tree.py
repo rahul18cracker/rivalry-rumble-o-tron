@@ -65,7 +65,7 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     # Number Cruncher
     lines.append(f"├── 📊 Number Cruncher — {len(fin_calls)} tool call{'s' if len(fin_calls) != 1 else ''}")
     for i, tc in enumerate(fin_calls):
-        is_last = (i == len(fin_calls) - 1)
+        is_last = i == len(fin_calls) - 1
         prefix = "│   └── " if is_last else "│   ├── "
         name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))
@@ -75,7 +75,7 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     # Street Scout
     lines.append(f"├── 🔍 Street Scout — {len(comp_calls)} tool call{'s' if len(comp_calls) != 1 else ''}")
     for i, tc in enumerate(comp_calls):
-        is_last = (i == len(comp_calls) - 1)
+        is_last = i == len(comp_calls) - 1
         prefix = "│   └── " if is_last else "│   ├── "
         name = _friendly_tool_name(tc.get("tool", "?"))
         args_str = _short_args(tc.get("args", {}))

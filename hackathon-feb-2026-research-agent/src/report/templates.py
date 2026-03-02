@@ -1,7 +1,5 @@
 """Report templates for research output."""
 
-from datetime import datetime
-
 REPORT_TEMPLATE = """# {title}
 *Generated: {date} | Research Agent v0.1*
 
