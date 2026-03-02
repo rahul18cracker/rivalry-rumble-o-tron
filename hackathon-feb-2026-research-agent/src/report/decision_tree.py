@@ -83,7 +83,9 @@ def build_decision_tree_markdown(metadata: dict) -> str:
     lines.append("│")
 
     # Market Intel Scout
-    lines.append(f"├── 📈 Market Intel Scout — {len(market_intel_calls)} tool call{'s' if len(market_intel_calls) != 1 else ''}")
+    mi_count = len(market_intel_calls)
+    mi_suffix = "s" if mi_count != 1 else ""
+    lines.append(f"├── 📈 Market Intel Scout — {mi_count} tool call{mi_suffix}")
     for i, tc in enumerate(market_intel_calls):
         is_last = (i == len(market_intel_calls) - 1)
         prefix = "│   └── " if is_last else "│   ├── "

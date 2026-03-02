@@ -1,19 +1,20 @@
 """Market Intelligence Agent - analyzes market sizing, forecasts, news, and sentiment."""
 
-from typing import Any, Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
+
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..config import get_config
 from ..prompts.market_intel_prompt import MARKET_INTEL_SYSTEM_PROMPT
 from ..tools.market_intel_tools import (
-    search_market_size,
-    search_industry_forecast,
-    search_recent_news,
     search_analyst_sentiment,
+    search_industry_forecast,
+    search_market_size,
+    search_recent_news,
 )
 
 
