@@ -181,13 +181,16 @@ def _get_active_pipeline_stages(stage_states: dict) -> list[dict]:
 
     Once the route stage completes, we know the query_type. For follow-ups,
     we show only the relevant stages. Until then, show the full pipeline.
+
+    The query_type is stored explicitly in stage_states["_query_type"] by
+    the progress callback, rather than parsed from detail strings.
     """
     route_state = stage_states.get("route", {})
-    route_detail = route_state.get("detail", "")
+    query_type = stage_states.get("_query_type", "")
 
     # If route is done and it's a follow-up, show condensed stages
     if route_state.get("status") == "done":
-        if "followup_with_agents" in route_detail:
+        if query_type == "followup_with_agents":
             # Build dynamic stage list: route + active agents + synthesize
             stages = [PIPELINE_STAGES_FOLLOWUP_BASE[0]]  # route
             for agent_key, stage_def in AGENT_STAGE_DEFS.items():
@@ -195,7 +198,7 @@ def _get_active_pipeline_stages(stage_states: dict) -> list[dict]:
                     stages.append(stage_def)
             stages.append(PIPELINE_STAGES_FOLLOWUP_BASE[1])  # synthesize
             return stages
-        elif "followup_context_only" in route_detail:
+        elif query_type == "followup_context_only":
             return PIPELINE_STAGES_FOLLOWUP_BASE
 
     # Default: full pipeline
@@ -345,6 +348,9 @@ def process_query(query: str):
                         "status": update.get("status", "running"),
                         "detail": update.get("detail", ""),
                     }
+                    # Store query_type explicitly when route completes
+                    if update.get("query_type"):
+                        stage_states["_query_type"] = update["query_type"]
 
         def _run_agent():
             """Worker thread: runs the async agent in its own event loop."""

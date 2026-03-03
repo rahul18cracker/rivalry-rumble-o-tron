@@ -322,7 +322,7 @@ class TestSynthesizeFollowup:
 
         # Verify LLM was called with prompt containing new results
         call_args = llm.invoke.call_args[0][0]
-        prompt_content = call_args[0]["content"]
+        prompt_content = call_args[0].content  # HumanMessage object
         assert "Fresh revenue data" in prompt_content
 
     def test_handles_llm_error_gracefully(self):

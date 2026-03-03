@@ -83,7 +83,14 @@ def create_manager_agent():
             agents_needed=agents_needed,
         )
         if callback:
-            callback({"stage": "route", "status": "done", "detail": f"Query type: {query_type}"})
+            callback(
+                {
+                    "stage": "route",
+                    "status": "done",
+                    "detail": f"Query type: {query_type}",
+                    "query_type": query_type,
+                }
+            )
 
         return {
             "query_type": query_type,
