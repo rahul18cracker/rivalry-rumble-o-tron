@@ -8,19 +8,21 @@
 ## Hackathon Baseline (What we built)
 
 ```
-Streamlit UI → Manager Agent → [Financial Agent, Competitor Agent] → Markdown Report
+Streamlit UI → Manager Agent (route → parse → execute → synthesize) → Markdown Report
+                                    ↕ follow-up routing
+              [Financial Agent, Competitor Agent, Market Intel Agent]
 ```
 
 **Capabilities at hackathon end:**
 - Single segment comparison (Observability)
 - 3 companies (Cisco/Splunk, DataDog, Dynatrace)
-- Basic financials (yfinance)
-- Web research (Tavily)
-- Markdown report output
+- 3 sub-agents: Financial (yfinance), Competitor (Tavily), Market Intel (Tavily)
+- Conversational follow-ups with intelligent routing (new_research / followup_with_agents / followup_context_only)
+- Markdown report output + conversational follow-up responses
 - Parallel sub-agent execution (asyncio.gather)
 - Progress indicators with rotating quips
 - "Behind the Scenes" expander with agent stats
-- Decision tree visualization (Graphviz DOT via st.graphviz_chart)
+- Decision tree visualization (text tree via st.code)
 - Tool call extraction from LangGraph message history
 
 ---
@@ -411,6 +413,8 @@ datadog:
 ### Interactive Refinement
 <!-- MARKER: INTERACTIVE -->
 
+**Status: PARTIALLY IMPLEMENTED (Session 6, 2026-03-02)**
+
 **Goal:** User can drill down, ask follow-ups, challenge findings
 
 ```
@@ -427,21 +431,27 @@ User: "Yes, compare cloud provider integrations specifically"
 Agent: [Triggers focused sub-research on cloud integrations]
 ```
 
-**Implementation:**
-- Conversation memory with full report context
-- Follow-up query routing to appropriate sub-agent
-- "Challenge this finding" button that triggers deeper research
-- Citation drill-down (click source → see full context)
+**What's implemented:**
+- [x] Follow-up query routing via LLM classification (new_research / followup_with_agents / followup_context_only)
+- [x] Selective sub-agent re-runs with context-enriched tasks
+- [x] Conversational synthesis from cached context + new agent data
+- [x] Session state context passing (last_report_context in Streamlit)
+- [x] Dynamic progress UI for follow-up paths
 
-**New Files:**
+**What's remaining:**
+- [ ] "Challenge this finding" button that triggers deeper research
+- [ ] Citation drill-down (click source → see full context)
+- [ ] Persistent conversation memory beyond session (currently session-only)
+
+**Files:**
 ```
 ├── src/
-│   ├── memory/
-│   │   ├── __init__.py
-│   │   ├── conversation.py       # Conversation history
-│   │   └── report_context.py     # Keep report in context
+│   ├── agents/
+│   │   └── followup.py           # route_query(), build_focused_task(), synthesize_followup()
+│   ├── prompts/
+│   │   └── followup_prompt.py    # ROUTE_QUERY_PROMPT, FOLLOWUP_SYNTHESIS_PROMPT, FOLLOWUP_AGENT_TASK_TEMPLATE
 │   └── agents/
-│       └── followup_router.py    # Route follow-ups
+│       └── manager.py            # Extended with route node, execute_followup, synthesize_followup nodes
 ```
 <!-- END MARKER: INTERACTIVE -->
 
@@ -616,10 +626,11 @@ class ConfluenceExporter(ReportExporter): ...
 | Version | Timeline | Key Features |
 |---------|----------|--------------|
 | 0.1.0 | Hackathon | 2 agents, parallel execution, progress UI, decision tree |
-| 0.2.0 | +2 weeks | Stabilization, error handling, caching |
-| 0.3.0 | +1 month | Evaluators, critique agent |
-| 0.4.0 | +2 months | Additional data sources, scope expansion |
-| 0.5.0 | +3 months | Interactive refinement, monitoring |
+| 0.2.0 | +2 weeks | Stabilization, error handling, retry, LangSmith tracing |
+| 0.3.0 | +3 weeks | 3rd agent (Market Intel), interactive follow-up questions |
+| 0.4.0 | +1 month | Evaluators, critique agent |
+| 0.5.0 | +2 months | Additional data sources, scope expansion |
+| 0.6.0 | +3 months | Advanced interactive features, monitoring |
 | 1.0.0 | +4 months | Production-ready, enterprise features |
 
 ---

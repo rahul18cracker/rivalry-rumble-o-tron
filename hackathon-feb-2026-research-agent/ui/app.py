@@ -38,8 +38,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Pipeline stage definitions
-PIPELINE_STAGES = [
+# Pipeline stage definitions — full research pipeline
+PIPELINE_STAGES_FULL = [
+    {"key": "route", "label": "Sizing up the question", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
     {"key": "parse", "label": "Reading the matchup card", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
     {"key": "financial", "label": "Number Cruncher", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
     {"key": "competitor", "label": "Street Scout", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
@@ -47,10 +48,34 @@ PIPELINE_STAGES = [
     {"key": "synthesize", "label": "Writing the verdict", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
 ]
 
-STAGE_PROGRESS = {"parse": 0.15, "financial": 0.40, "competitor": 0.40, "market_intel": 0.40, "synthesize": 0.85}
+# Follow-up stages are dynamically built, but we need a base set
+PIPELINE_STAGES_FOLLOWUP_BASE = [
+    {"key": "route", "label": "Sizing up the question", "icon_pending": "⬜", "icon_running": "🔄", "icon_done": "✅"},
+    {"key": "synthesize", "label": "Composing answer", "icon_pending": "⬜", "icon_running": "📝", "icon_done": "✅"},
+]
+
+# Agent stage definitions for dynamic insertion into follow-up pipeline
+AGENT_STAGE_DEFS = {
+    "financial": {"key": "financial", "label": "Number Cruncher", "icon_pending": "⬜", "icon_running": "📊", "icon_done": "✅"},
+    "competitor": {"key": "competitor", "label": "Street Scout", "icon_pending": "⬜", "icon_running": "🔍", "icon_done": "✅"},
+    "market_intel": {"key": "market_intel", "label": "Market Intel Scout", "icon_pending": "⬜", "icon_running": "📈", "icon_done": "✅"},
+}
+
+STAGE_PROGRESS = {
+    "route": 0.05,
+    "parse": 0.15,
+    "financial": 0.40,
+    "competitor": 0.40,
+    "market_intel": 0.40,
+    "synthesize": 0.85,
+}
 
 # Funky status quips shown while each stage is running (cycled by poll tick)
 STAGE_QUIPS = {
+    "route": [
+        "Sizing up the question...",
+        "Deciding the game plan...",
+    ],
     "parse": [
         "Sizing up the contenders...",
         "Reading the tale of the tape...",
@@ -84,6 +109,8 @@ def init_session_state():
         st.session_state.messages = []
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
+    if "last_report_context" not in st.session_state:
+        st.session_state.last_report_context = None
 
 
 def validate_config():
@@ -149,6 +176,32 @@ def display_example_queries():
     return None
 
 
+def _get_active_pipeline_stages(stage_states: dict) -> list[dict]:
+    """Determine which pipeline stages to show based on routing result.
+
+    Once the route stage completes, we know the query_type. For follow-ups,
+    we show only the relevant stages. Until then, show the full pipeline.
+    """
+    route_state = stage_states.get("route", {})
+    route_detail = route_state.get("detail", "")
+
+    # If route is done and it's a follow-up, show condensed stages
+    if route_state.get("status") == "done":
+        if "followup_with_agents" in route_detail:
+            # Build dynamic stage list: route + active agents + synthesize
+            stages = [PIPELINE_STAGES_FOLLOWUP_BASE[0]]  # route
+            for agent_key, stage_def in AGENT_STAGE_DEFS.items():
+                if stage_states.get(agent_key, {}).get("status") in ("running", "done"):
+                    stages.append(stage_def)
+            stages.append(PIPELINE_STAGES_FOLLOWUP_BASE[1])  # synthesize
+            return stages
+        elif "followup_context_only" in route_detail:
+            return PIPELINE_STAGES_FOLLOWUP_BASE
+
+    # Default: full pipeline
+    return PIPELINE_STAGES_FULL
+
+
 def display_chat_history():
     """Display chat message history with optional agent activity log."""
     for message in st.session_state.messages:
@@ -158,18 +211,29 @@ def display_chat_history():
             # Render agent activity log if metadata is present
             meta = message.get("metadata")
             if meta and message["role"] == "assistant":
+                query_type = meta.get("query_type", "new_research")
+
                 with st.expander("🔎 Behind the Scenes"):
                     companies = meta.get("companies", [])
                     tickers = meta.get("tickers", [])
                     elapsed = meta.get("elapsed", 0)
-                    fin = meta.get("financial_results") or {}
-                    comp = meta.get("competitor_results") or {}
-                    market = meta.get("market_intel_results") or {}
+
+                    # Show query routing info for follow-ups
+                    if query_type != "new_research":
+                        agents_used = meta.get("followup_agents", [])
+                        route_label = "Context-only" if query_type == "followup_context_only" else f"Re-ran: {', '.join(agents_used)}"
+                        st.markdown(f"**Query type:** Follow-up ({route_label})")
+                    else:
+                        st.markdown("**Query type:** Full research")
 
                     st.markdown(f"**Companies identified:** {', '.join(companies)}")
                     st.markdown(f"**Tickers analyzed:** {', '.join(tickers)}")
                     st.markdown(f"**Completed in:** {int(elapsed)}s")
                     st.divider()
+
+                    fin = meta.get("financial_results") or {}
+                    comp = meta.get("competitor_results") or {}
+                    market = meta.get("market_intel_results") or {}
 
                     col_fin, col_comp, col_market = st.columns(3)
                     with col_fin:
@@ -203,8 +267,9 @@ def display_chat_history():
 
 def render_stage_text(stage_states: dict, tick: int = 0) -> str:
     """Render stage status as markdown text with funky quips."""
+    active_stages = _get_active_pipeline_stages(stage_states)
     lines = []
-    for stage_def in PIPELINE_STAGES:
+    for stage_def in active_stages:
         key = stage_def["key"]
         state = stage_states.get(key, {"status": "pending", "detail": ""})
         status = state["status"]
@@ -247,6 +312,11 @@ def process_query(query: str):
     # Add user message to history
     st.session_state.messages.append({"role": "user", "content": query})
 
+    # Extract prior context for follow-up routing
+    last_ctx = st.session_state.last_report_context
+    prior_report = last_ctx["report"] if last_ctx else None
+    prior_results = last_ctx if last_ctx else None
+
     with st.chat_message("assistant"):
         progress_bar = st.progress(0.0)
         stages_placeholder = st.empty()
@@ -282,7 +352,12 @@ def process_query(query: str):
             asyncio.set_event_loop(loop)
             try:
                 worker_result[0] = loop.run_until_complete(
-                    run_manager_agent(query, progress_callback)
+                    run_manager_agent(
+                        query,
+                        progress_callback,
+                        prior_report=prior_report,
+                        prior_results=prior_results,
+                    )
                 )
             except Exception as e:
                 worker_error[0] = e
@@ -312,15 +387,17 @@ def process_query(query: str):
 
             agent_output = worker_result[0]
             report = agent_output["final_report"]
+            query_type = agent_output.get("query_type", "new_research")
+            followup_agents = agent_output.get("followup_agents", [])
 
             # Show completion
             progress_bar.progress(1.0)
             elapsed = time.time() - start_time
             elapsed_placeholder.caption(f"Completed in {int(elapsed)}s")
 
-            # Mark all stages done
-            for stage_def in PIPELINE_STAGES:
-                stage_states[stage_def["key"]] = {"status": "done", "detail": ""}
+            # Mark all active stages done
+            for key in stage_states:
+                stage_states[key] = {"status": "done", "detail": ""}
             stages_placeholder.markdown(render_stage_text(stage_states))
 
             # Brief pause so user sees 100%, then collapse progress and show report
@@ -340,6 +417,8 @@ def process_query(query: str):
                 "companies": agent_output.get("companies", []),
                 "tickers": agent_output.get("tickers", []),
                 "elapsed": elapsed,
+                "query_type": query_type,
+                "followup_agents": followup_agents,
                 "financial_results": {
                     "message_count": fin.get("message_count"),
                     "tickers": fin.get("tickers"),
@@ -363,6 +442,29 @@ def process_query(query: str):
                 "content": report,
                 "metadata": metadata,
             })
+
+            # Update last_report_context for follow-up routing
+            # For new research: store full context
+            # For follow-ups that re-ran agents: merge new results into existing context
+            if query_type == "new_research":
+                st.session_state.last_report_context = {
+                    "report": report,
+                    "companies": agent_output.get("companies", []),
+                    "tickers": agent_output.get("tickers", []),
+                    "financial_results": agent_output.get("financial_results"),
+                    "competitor_results": agent_output.get("competitor_results"),
+                    "market_intel_results": agent_output.get("market_intel_results"),
+                }
+            elif query_type == "followup_with_agents" and last_ctx:
+                # Merge new agent results into existing context
+                for agent_name in followup_agents:
+                    key = f"{agent_name}_results"
+                    new_val = agent_output.get(key)
+                    if new_val:
+                        last_ctx[key] = new_val
+                # Keep the original full report as the "prior report" for future follow-ups
+                st.session_state.last_report_context = last_ctx
+            # For followup_context_only: no context update needed
 
         except Exception as e:
             progress_bar.empty()

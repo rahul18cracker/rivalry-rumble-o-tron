@@ -4,33 +4,38 @@ Multi-agent competitive research system built with LangGraph, LangChain, and Str
 
 ## Architecture
 
-- **Manager Agent** (`src/agents/manager.py`) — Orchestrator. Parses queries, dispatches sub-agents in parallel via `asyncio.gather`, synthesizes final report.
+- **Manager Agent** (`src/agents/manager.py`) — Orchestrator with conversational routing. Entry point is a `route` node that classifies queries as `new_research`, `followup_with_agents`, or `followup_context_only`. New research runs the full pipeline (parse → execute → synthesize). Follow-ups selectively re-run agents or answer from cached context.
+- **Follow-up Router** (`src/agents/followup.py`) — Query classification, focused task building, and conversational synthesis for follow-up questions.
 - **Number Cruncher** (`src/agents/financial.py`) — Financial sub-agent using yfinance tools.
 - **Street Scout** (`src/agents/competitor.py`) — Competitive intelligence sub-agent using Tavily search tools.
+- **Market Intel** (`src/agents/market_intel.py`) — Market intelligence sub-agent using Tavily search tools for trends, analyst sentiment, and forecasts.
 - **Report Generator** (`src/report/generator.py`) — LLM-powered markdown report synthesis.
 - **Decision Tree** (`src/report/decision_tree.py`) — Text tree visualization for Behind the Scenes UI.
-- **Streamlit UI** (`ui/app.py`) — Chat interface with progress indicators, example query cards, Behind the Scenes expander.
+- **Streamlit UI** (`ui/app.py`) — Chat interface with progress indicators, example query cards, Behind the Scenes expander. Supports conversational follow-ups with session state context passing.
 
 ## Key Files
 
 ```
-src/agents/manager.py      — Orchestrator (error handling, timeout, partial failures)
+src/agents/manager.py      — Orchestrator with route node (new_research | followup_with_agents | followup_context_only)
+src/agents/followup.py     — Follow-up routing, focused task building, conversational synthesis
 src/agents/financial.py    — yfinance tools (Number Cruncher)
 src/agents/competitor.py   — Tavily tools (Street Scout)
+src/agents/market_intel.py — Tavily tools (Market Intel)
 src/tools/yfinance_tools.py — Input validation, retry, logging
 src/tools/tavily_tools.py  — Input validation, retry, logging
+src/prompts/followup_prompt.py — ROUTE_QUERY_PROMPT, FOLLOWUP_SYNTHESIS_PROMPT, FOLLOWUP_AGENT_TASK_TEMPLATE
 src/utils/retry.py         — retry_transient() decorator (tenacity)
 src/report/generator.py    — LLM report synthesis with fallback
 src/report/decision_tree.py — Text tree for Behind the Scenes
 src/config.py              — Config, API keys, LangSmith tracing
 src/errors.py              — Custom exception hierarchy
 src/logging_config.py      — structlog JSON configuration
-ui/app.py                  — Streamlit UI
+ui/app.py                  — Streamlit UI with follow-up context passing
 tests/conftest.py          — Shared fixtures, singleton reset, LLM/tool mocks
-tests/unit/               — 94 unit tests (all mocked, no API keys)
+tests/unit/               — 126 unit tests (all mocked, no API keys)
 tests/integration/        — 5 pipeline tests (full flow, partial failures)
 .env.example              — Documented env vars (including LangSmith)
-docs/skills-learned.md     — 20 detailed technical learnings
+docs/skills-learned.md     — 21 detailed technical learnings
 docs/post-hackathon-roadmap.md — Observability plan
 SESSION.md                 — Session context and history
 ```
@@ -100,5 +105,4 @@ ruff format --check src/ tests/
 ## Remaining TODOs
 
 - Add caching for API responses
-- Consider 3rd Market Intelligence sub-agent
 - Production observability (cost tracking, quality scoring — see docs/post-hackathon-roadmap.md)
