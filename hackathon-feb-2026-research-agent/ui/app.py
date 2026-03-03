@@ -205,11 +205,16 @@ def _get_active_pipeline_stages(stage_states: dict) -> list[dict]:
     return PIPELINE_STAGES_FULL
 
 
+def _escape_dollars(text: str) -> str:
+    """Escape dollar signs so Streamlit doesn't render them as LaTeX math."""
+    return text.replace("$", "\\$")
+
+
 def display_chat_history():
     """Display chat message history with optional agent activity log."""
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            st.markdown(_escape_dollars(message["content"]))
 
             # Render agent activity log if metadata is present
             meta = message.get("metadata")
@@ -417,7 +422,7 @@ def process_query(query: str):
             progress_bar.empty()
             stages_placeholder.empty()
             elapsed_placeholder.empty()
-            result_placeholder.markdown(report)
+            result_placeholder.markdown(_escape_dollars(report))
 
             # Store metadata for "Behind the Scenes" expander (survives rerun)
             fin = agent_output.get("financial_results") or {}
