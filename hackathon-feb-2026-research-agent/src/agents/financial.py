@@ -1,5 +1,7 @@
 """Financial Agent - analyzes company financial data using yfinance."""
 
+import ast
+import json
 from typing import Annotated, Any, TypedDict
 
 from langchain_anthropic import ChatAnthropic
@@ -64,6 +66,67 @@ def _extract_tool_calls(messages: list) -> list[dict]:
                     }
                 )
     return tool_calls
+
+
+def _parse_tool_content(content: str) -> dict | None:
+    """Parse tool message content as JSON or Python literal."""
+    if not content or not isinstance(content, str):
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return ast.literal_eval(content)
+    except (ValueError, SyntaxError):
+        return None
+
+
+def _extract_structured_data(messages: list) -> dict[str, Any]:
+    """Extract full tool results for UI visualization (comparison, historical)."""
+    structured: dict[str, Any] = {"comparison": None, "historical": {}}
+    pending: dict[str, dict] = {}
+    saw_comparison_tool = False
+
+    for msg in messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                pending[tc["id"]] = {"tool": tc["name"], "args": tc["args"]}
+        if msg.__class__.__name__ == "ToolMessage":
+            call_id = getattr(msg, "tool_call_id", None)
+            if call_id and call_id in pending:
+                info = pending.pop(call_id)
+                content = msg.content if hasattr(msg, "content") else str(msg)
+                parsed = _parse_tool_content(content) if isinstance(content, str) else None
+                if not parsed:
+                    continue
+
+                tool_name = info.get("tool", "")
+                if tool_name == "get_company_comparison":
+                    if parsed.get("error"):
+                        continue
+                    companies = parsed.get("companies") or []
+                    if companies:
+                        structured["comparison"] = {"companies": companies, "source": "yfinance"}
+                        saw_comparison_tool = True
+                elif tool_name == "get_company_financials" and not saw_comparison_tool:
+                    if parsed.get("error"):
+                        continue
+                    # Merge single-company results when no get_company_comparison was used
+                    ticker = parsed.get("ticker")
+                    if structured["comparison"] is None:
+                        structured["comparison"] = {"companies": [parsed], "source": "yfinance"}
+                    else:
+                        existing = {c.get("ticker"): c for c in structured["comparison"]["companies"]}
+                        existing[ticker] = parsed
+                        structured["comparison"]["companies"] = list(existing.values())
+                elif tool_name == "get_historical_revenue":
+                    ticker = parsed.get("ticker") or info.get("args", {}).get("ticker", "?")
+                    hist = parsed.get("historical_revenue") or []
+                    if hist:
+                        structured["historical"][ticker] = {"historical_revenue": hist}
+
+    return structured
 
 
 def create_financial_agent():
@@ -165,8 +228,9 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
         # Extract the final response
         final_message = result["messages"][-1]
 
-        # Extract tool call log from message history
+        # Extract tool call log and structured data from message history
         tool_calls = _extract_tool_calls(result["messages"])
+        structured_data = _extract_structured_data(result["messages"])
 
         logger.info("financial_agent.run.end", tickers=tickers, tool_call_count=len(tool_calls))
         return {
@@ -175,6 +239,7 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
             "response": final_message.content if hasattr(final_message, "content") else str(final_message),
             "message_count": len(result["messages"]),
             "tool_calls": tool_calls,
+            "structured_data": structured_data,
         }
     except Exception as e:
         logger.error("financial_agent.run.error", task=task, error=str(e))
@@ -185,6 +250,7 @@ async def run_financial_agent(task: str, tickers: list[str] | None = None) -> di
             "tickers": tickers or [],
             "message_count": 0,
             "tool_calls": [],
+            "structured_data": {"comparison": None, "historical": {}},
         }
 
 

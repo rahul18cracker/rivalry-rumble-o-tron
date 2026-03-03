@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.agents.financial import _extract_tool_calls
+from src.agents.financial import _extract_structured_data, _extract_tool_calls
 
 
 @pytest.mark.unit
@@ -49,6 +49,39 @@ class TestExtractToolCalls:
 
 
 @pytest.mark.unit
+class TestExtractStructuredData:
+    def test_extracts_comparison_from_get_company_comparison(self):
+        import json
+
+        ai_msg = MagicMock()
+        ai_msg.tool_calls = [
+            {"id": "tc1", "name": "get_company_comparison", "args": {"tickers": ["DDOG", "DT"]}},
+        ]
+        tool_result = {
+            "companies": [
+                {"company_name": "Datadog", "ticker": "DDOG", "revenue_ttm_raw": 2.1e9, "revenue_growth_yoy_raw": 0.29},
+                {"company_name": "Dynatrace", "ticker": "DT", "revenue_ttm_raw": 1.4e9, "revenue_growth_yoy_raw": 0.18},
+            ],
+            "source": "yfinance",
+        }
+        tool_msg = MagicMock()
+        tool_msg.__class__.__name__ = "ToolMessage"
+        tool_msg.tool_call_id = "tc1"
+        tool_msg.content = json.dumps(tool_result)
+
+        result = _extract_structured_data([ai_msg, tool_msg])
+        assert result["comparison"] is not None
+        assert len(result["comparison"]["companies"]) == 2
+        assert result["comparison"]["companies"][0]["ticker"] == "DDOG"
+        assert result["comparison"]["companies"][1]["revenue_ttm_raw"] == 1.4e9
+
+    def test_returns_empty_when_no_tool_messages(self):
+        result = _extract_structured_data([])
+        assert result["comparison"] is None
+        assert result["historical"] == {}
+
+
+@pytest.mark.unit
 class TestRunFinancialAgent:
     @pytest.mark.asyncio
     async def test_returns_expected_structure(self):
@@ -71,6 +104,8 @@ class TestRunFinancialAgent:
             assert result["tickers"] == ["DDOG"]
             assert result["response"] == "Financial analysis result"
             assert isinstance(result["tool_calls"], list)
+            assert "structured_data" in result
+            assert result["structured_data"]["comparison"] is None
 
     @pytest.mark.asyncio
     async def test_returns_error_dict_on_failure(self):
@@ -81,3 +116,4 @@ class TestRunFinancialAgent:
             assert "error" in result
             assert result["response"] == ""
             assert result["tool_calls"] == []
+            assert result["structured_data"] == {"comparison": None, "historical": {}}
