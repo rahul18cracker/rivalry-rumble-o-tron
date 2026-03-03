@@ -296,8 +296,8 @@ def render_stage_text(stage_states: dict, tick: int = 0) -> str:
 
 def compute_progress(stage_states: dict) -> float:
     """Compute progress bar value from stage states."""
-    done_stages = [k for k, v in stage_states.items() if v.get("status") == "done"]
-    running_stages = [k for k, v in stage_states.items() if v.get("status") == "running"]
+    done_stages = [k for k, v in stage_states.items() if isinstance(v, dict) and v.get("status") == "done"]
+    running_stages = [k for k, v in stage_states.items() if isinstance(v, dict) and v.get("status") == "running"]
 
     progress = 0.0
     for s in done_stages:
@@ -401,9 +401,10 @@ def process_query(query: str):
             elapsed = time.time() - start_time
             elapsed_placeholder.caption(f"Completed in {int(elapsed)}s")
 
-            # Mark all active stages done
+            # Mark all active stages done (skip metadata keys like _query_type)
             for key in stage_states:
-                stage_states[key] = {"status": "done", "detail": ""}
+                if isinstance(stage_states[key], dict):
+                    stage_states[key] = {"status": "done", "detail": ""}
             stages_placeholder.markdown(render_stage_text(stage_states))
 
             # Brief pause so user sees 100%, then collapse progress and show report
