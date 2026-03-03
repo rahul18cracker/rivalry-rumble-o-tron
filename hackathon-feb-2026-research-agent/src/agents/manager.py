@@ -224,7 +224,7 @@ Respond with JSON only:
                     market_intel_task if market_intel_task else _noop(),
                     return_exceptions=True,
                 ),
-                timeout=120,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             logger.error("manager.execute.timeout")
@@ -336,7 +336,7 @@ Respond with JSON only:
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*coros, return_exceptions=True),
-                timeout=120,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             logger.error("manager.execute_followup.timeout")
