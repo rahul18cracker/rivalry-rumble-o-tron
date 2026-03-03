@@ -89,6 +89,7 @@ def create_manager_agent():
                     "status": "done",
                     "detail": f"Query type: {query_type}",
                     "query_type": query_type,
+                    "followup_agents": agents_needed,
                 }
             )
 

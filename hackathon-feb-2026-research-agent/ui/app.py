@@ -191,10 +191,10 @@ def _get_active_pipeline_stages(stage_states: dict) -> list[dict]:
     # If route is done and it's a follow-up, show condensed stages
     if route_state.get("status") == "done":
         if query_type == "followup_with_agents":
-            # Build dynamic stage list: route + active agents + synthesize
+            # Build dynamic stage list: route + agents (pre-populated as pending) + synthesize
             stages = [PIPELINE_STAGES_FOLLOWUP_BASE[0]]  # route
             for agent_key, stage_def in AGENT_STAGE_DEFS.items():
-                if stage_states.get(agent_key, {}).get("status") in ("running", "done"):
+                if agent_key in stage_states:
                     stages.append(stage_def)
             stages.append(PIPELINE_STAGES_FOLLOWUP_BASE[1])  # synthesize
             return stages
@@ -348,9 +348,14 @@ def process_query(query: str):
                         "status": update.get("status", "running"),
                         "detail": update.get("detail", ""),
                     }
-                    # Store query_type explicitly when route completes
+                    # Store routing metadata when route completes
                     if update.get("query_type"):
                         stage_states["_query_type"] = update["query_type"]
+                        # Pre-populate follow-up agent stages as pending so the
+                        # UI shows them immediately, before their callbacks fire
+                        for agent_name in update.get("followup_agents", []):
+                            if agent_name in AGENT_STAGE_DEFS:
+                                stage_states[agent_name] = {"status": "pending", "detail": ""}
 
         def _run_agent():
             """Worker thread: runs the async agent in its own event loop."""
