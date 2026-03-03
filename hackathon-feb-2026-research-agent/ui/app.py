@@ -11,6 +11,9 @@ import asyncio
 import time
 import threading
 import traceback
+
+import pandas as pd
+
 from src.config import get_config
 from src.agents.manager import run_manager_agent, extract_tool_call_summary
 from src.report.decision_tree import build_decision_tree_markdown
@@ -210,14 +213,89 @@ def _escape_dollars(text: str) -> str:
     return text.replace("$", "\\$")
 
 
+def _format_revenue_b(value: float | None) -> str:
+    """Format revenue in billions for display."""
+    if value is None:
+        return "N/A"
+    if value >= 1e9:
+        return f"${value / 1e9:.2f}B"
+    if value >= 1e6:
+        return f"${value / 1e6:.2f}M"
+    return f"${value:,.0f}"
+
+
+def _format_growth(value: float | None) -> str:
+    """Format growth as percentage."""
+    if value is None:
+        return "N/A"
+    return f"{value * 100:.1f}%"
+
+
+def _render_financial_snapshot(structured_data: dict) -> bool:
+    """Render metric cards and revenue bar chart from structured financial data.
+
+    Returns True if any visuals were rendered, False otherwise.
+    """
+    data = structured_data or {}
+    comparison = data.get("comparison") or {}
+    companies = comparison.get("companies") or []
+
+    if not companies or comparison.get("error"):
+        return False
+
+    # Filter to companies with valid revenue (cap at 4 for layout)
+    valid = [
+        c
+        for c in companies[:4]
+        if c.get("revenue_ttm_raw") is not None and not isinstance(c.get("revenue_ttm_raw"), str)
+    ]
+    if not valid:
+        # Fallback: show formatted values even if raw is missing
+        valid = [c for c in companies[:4] if c.get("revenue_ttm") or c.get("revenue_ttm_raw")]
+
+    if not valid:
+        return False
+
+    st.markdown("### 📊 Financial Snapshot")
+    n = len(valid)
+    cols = st.columns(n)
+
+    for i, c in enumerate(valid):
+        with cols[i]:
+            name = c.get("company_name") or c.get("ticker") or "Unknown"
+            rev_raw = c.get("revenue_ttm_raw")
+            rev_label = _format_revenue_b(rev_raw) if rev_raw is not None else (c.get("revenue_ttm") or "N/A")
+            growth_raw = c.get("revenue_growth_yoy_raw")
+            growth_label = _format_growth(growth_raw) if growth_raw is not None else (c.get("revenue_growth_yoy") or "N/A")
+            st.metric(label=name, value=rev_label, delta=growth_label)
+
+    # Revenue bar chart (use raw values for scale)
+    chart_data = []
+    for c in valid:
+        rev_raw = c.get("revenue_ttm_raw")
+        if rev_raw is not None and isinstance(rev_raw, (int, float)) and rev_raw == rev_raw:  # exclude NaN
+            chart_data.append({"Company": c.get("company_name") or c.get("ticker") or "?", "Revenue (B)": rev_raw / 1e9})
+    if chart_data:
+        df = pd.DataFrame(chart_data)
+        st.bar_chart(df.set_index("Company"))
+
+    return True
+
+
 def display_chat_history():
     """Display chat message history with optional agent activity log."""
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
+            # Render financial snapshot before report for assistant messages
+            meta = message.get("metadata")
+            if meta and message["role"] == "assistant":
+                fin_struct = meta.get("financial_structured_data")
+                if fin_struct and _render_financial_snapshot(fin_struct):
+                    st.divider()
+
             st.markdown(_escape_dollars(message["content"]))
 
             # Render agent activity log if metadata is present
-            meta = message.get("metadata")
             if meta and message["role"] == "assistant":
                 query_type = meta.get("query_type", "new_research")
 
@@ -422,7 +500,11 @@ def process_query(query: str):
             progress_bar.empty()
             stages_placeholder.empty()
             elapsed_placeholder.empty()
-            result_placeholder.markdown(_escape_dollars(report))
+            with result_placeholder.container():
+                fin_struct = (agent_output.get("financial_results") or {}).get("structured_data")
+                if fin_struct and _render_financial_snapshot(fin_struct):
+                    st.divider()
+                st.markdown(_escape_dollars(report))
 
             # Store metadata for "Behind the Scenes" expander (survives rerun)
             fin = agent_output.get("financial_results") or {}
@@ -436,6 +518,7 @@ def process_query(query: str):
                 "elapsed": elapsed,
                 "query_type": query_type,
                 "followup_agents": followup_agents,
+                "financial_structured_data": fin.get("structured_data"),
                 "financial_results": {
                     "message_count": fin.get("message_count"),
                     "tickers": fin.get("tickers"),
