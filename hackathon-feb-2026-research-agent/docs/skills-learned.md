@@ -485,3 +485,35 @@ jobs:
 **Note**: The `codecov-action` `files` path is relative to the repo root (not the working directory), so use: `files: ./hackathon-feb-2026-research-agent/coverage.xml`
 
 **Lesson**: Always verify `git rev-parse --show-toplevel` matches where you think the repo root is. Monorepo or nested-project layouts are a common source of this issue.
+
+---
+
+## 21. LangGraph Conditional Routing for Conversational Follow-Ups
+
+**Problem**: The manager agent was one-shot — every user message triggered the full pipeline (parse → execute all agents → synthesize). Follow-up questions like "Why does DataDog have higher margins?" didn't need to re-run the competitor agent or market intel agent.
+
+**Fix**: Add a `route` node as the new graph entry point that classifies the query via LLM, then conditionally routes to the appropriate execution path:
+
+```python
+def route_after_classify(state):
+    if state.get("query_type") == "followup_with_agents":
+        return "execute_followup"
+    elif state.get("query_type") == "followup_context_only":
+        return "synthesize_followup"
+    else:
+        return "parse"  # full pipeline
+
+workflow.add_conditional_edges("route", route_after_classify, {
+    "parse": "parse",
+    "execute_followup": "execute_followup",
+    "synthesize_followup": "synthesize_followup",
+})
+```
+
+**Key Design Decisions**:
+- **Explicit context passing** over LangGraph checkpointer: Prior report and agent results are passed into `ManagerState` from Streamlit session state each invocation. Simpler, no persistence infrastructure needed.
+- **Graceful fallback**: If the LLM classification fails (bad JSON, API error), always fall back to `new_research` so the user still gets a result.
+- **Agent name validation**: Filter `agents_needed` against a known set (`VALID_AGENTS`) to prevent the LLM from hallucinating agent names.
+- **Context-enriched tasks**: When re-running a sub-agent for follow-up, `build_focused_task()` includes prior findings + the specific follow-up question so the agent makes targeted tool calls instead of repeating prior work.
+
+**Lesson**: LangGraph's `add_conditional_edges` makes it straightforward to add routing logic to an existing graph. The key is keeping the routing logic in a separate module (`followup.py`) so it's independently testable without mocking the entire graph.

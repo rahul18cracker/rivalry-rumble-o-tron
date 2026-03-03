@@ -12,6 +12,7 @@ from ..logging_config import get_logger
 from ..report.generator import generate_report
 from .competitor import run_competitor_agent
 from .financial import run_financial_agent
+from .followup import build_focused_task, route_query, synthesize_followup
 from .market_intel import run_market_intel_agent
 
 logger = get_logger(__name__)
@@ -40,6 +41,12 @@ class ManagerState(TypedDict):
     final_report: str
     status: str
     progress_callback: Any | None
+    # Follow-up context fields
+    prior_report: str | None
+    prior_results: dict | None
+    query_type: str
+    followup_agents: list[str]
+    focused_task: str
 
 
 def create_manager_agent():
@@ -52,6 +59,45 @@ def create_manager_agent():
         temperature=config.model_temperature,
         api_key=config.anthropic_api_key,
     )
+
+    def route_request(state: ManagerState) -> dict:
+        """Classify query and determine execution path."""
+        prior_report = state.get("prior_report")
+        user_query = state["user_query"]
+        callback = state.get("progress_callback")
+
+        if callback:
+            callback({"stage": "route", "status": "running", "detail": "Classifying query..."})
+
+        logger.info("manager.route.start", query=user_query, has_prior=bool(prior_report))
+
+        classification = route_query(user_query, prior_report, llm)
+
+        query_type = classification["query_type"]
+        agents_needed = classification["agents_needed"]
+        focused_task = classification["focused_task"]
+
+        logger.info(
+            "manager.route.end",
+            query_type=query_type,
+            agents_needed=agents_needed,
+        )
+        if callback:
+            callback(
+                {
+                    "stage": "route",
+                    "status": "done",
+                    "detail": f"Query type: {query_type}",
+                    "query_type": query_type,
+                    "followup_agents": agents_needed,
+                }
+            )
+
+        return {
+            "query_type": query_type,
+            "followup_agents": agents_needed,
+            "focused_task": focused_task,
+        }
 
     def parse_request(state: ManagerState) -> dict:
         """Parse the user request to identify companies and create task plan."""
@@ -178,7 +224,7 @@ Respond with JSON only:
                     market_intel_task if market_intel_task else _noop(),
                     return_exceptions=True,
                 ),
-                timeout=120,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             logger.error("manager.execute.timeout")
@@ -245,21 +291,167 @@ Respond with JSON only:
             "status": "completed",
         }
 
+    async def execute_followup_tasks(state: ManagerState) -> dict:
+        """Execute only the selected sub-agents for a follow-up question."""
+        agents_needed = state.get("followup_agents", [])
+        focused_task_str = state.get("focused_task", state["user_query"])
+        prior_report = state.get("prior_report", "")
+        prior_results = state.get("prior_results") or {}
+        callback = state.get("progress_callback")
+
+        # Use companies/tickers from prior results, or defaults
+        companies = prior_results.get("companies", state.get("companies", []))
+        tickers = prior_results.get("tickers", state.get("tickers", []))
+
+        logger.info("manager.execute_followup.start", agents=agents_needed)
+
+        async def _noop():
+            return None
+
+        coros = []
+        agent_order = []
+
+        for agent_name in agents_needed:
+            task_str = build_focused_task(agent_name, focused_task_str, prior_report or "", companies)
+
+            if agent_name == "financial":
+                if callback:
+                    callback({"stage": "financial", "status": "running", "detail": "Re-checking financials..."})
+                coros.append(run_financial_agent(task_str, tickers))
+                agent_order.append("financial")
+            elif agent_name == "competitor":
+                if callback:
+                    callback({"stage": "competitor", "status": "running", "detail": "Digging deeper on competitors..."})
+                coros.append(run_competitor_agent(task_str, companies))
+                agent_order.append("competitor")
+            elif agent_name == "market_intel":
+                if callback:
+                    callback({"stage": "market_intel", "status": "running", "detail": "Fetching market updates..."})
+                coros.append(run_market_intel_agent(task_str, companies))
+                agent_order.append("market_intel")
+
+        if not coros:
+            return {"status": "followup_no_agents"}
+
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*coros, return_exceptions=True),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            logger.error("manager.execute_followup.timeout")
+            results = [{"error": "Timeout", "response": ""} for _ in coros]
+
+        new_results = {}
+        for agent_name, result in zip(agent_order, results):
+            if isinstance(result, BaseException):
+                logger.error(f"manager.execute_followup.{agent_name}_error", error=str(result))
+                result = {"error": str(result), "response": ""}
+            new_results[f"{agent_name}_results"] = result
+            if callback:
+                callback({"stage": agent_name, "status": "done", "detail": f"{agent_name} follow-up complete"})
+
+        # Store companies/tickers in state for downstream use
+        logger.info("manager.execute_followup.end")
+        return {
+            "financial_results": new_results.get("financial_results", state.get("financial_results")),
+            "competitor_results": new_results.get("competitor_results", state.get("competitor_results")),
+            "market_intel_results": new_results.get("market_intel_results", state.get("market_intel_results")),
+            "companies": companies,
+            "tickers": tickers,
+            "status": "followup_tasks_completed",
+        }
+
+    def synthesize_followup_response(state: ManagerState) -> dict:
+        """Generate a conversational follow-up response."""
+        user_query = state["user_query"]
+        prior_report = state.get("prior_report", "")
+        prior_results = state.get("prior_results")
+        callback = state.get("progress_callback")
+
+        if callback:
+            callback({"stage": "synthesize", "status": "running", "detail": "Composing follow-up answer..."})
+
+        logger.info("manager.synthesize_followup.start")
+
+        # Build new_results from state if agents were re-run
+        new_results = None
+        if state.get("query_type") == "followup_with_agents":
+            new_results = {
+                "financial_results": state.get("financial_results"),
+                "competitor_results": state.get("competitor_results"),
+                "market_intel_results": state.get("market_intel_results"),
+            }
+
+        response = synthesize_followup(
+            query=user_query,
+            prior_report=prior_report or "",
+            prior_results=prior_results,
+            new_results=new_results,
+            llm=llm,
+        )
+
+        logger.info("manager.synthesize_followup.end")
+        if callback:
+            callback({"stage": "synthesize", "status": "done", "detail": "Follow-up ready"})
+
+        # Carry forward companies/tickers from prior_results if not already set
+        companies = state.get("companies", [])
+        tickers = state.get("tickers", [])
+        if not companies and prior_results:
+            companies = prior_results.get("companies", [])
+            tickers = prior_results.get("tickers", [])
+
+        return {
+            "final_report": response,
+            "companies": companies,
+            "tickers": tickers,
+            "status": "completed",
+        }
+
+    # ---- Conditional routing ----
+    def route_after_classify(state: ManagerState) -> str:
+        query_type = state.get("query_type", "new_research")
+        if query_type == "followup_with_agents":
+            return "execute_followup"
+        elif query_type == "followup_context_only":
+            return "synthesize_followup"
+        else:
+            return "parse"
+
     # Build the graph
     workflow = StateGraph(ManagerState)
 
     # Add nodes
+    workflow.add_node("route", route_request)
     workflow.add_node("parse", parse_request)
     workflow.add_node("execute", execute_tasks)
     workflow.add_node("synthesize", synthesize_report)
+    workflow.add_node("execute_followup", execute_followup_tasks)
+    workflow.add_node("synthesize_followup", synthesize_followup_response)
 
     # Set entry point
-    workflow.set_entry_point("parse")
+    workflow.set_entry_point("route")
 
-    # Add edges
+    # Conditional edge from route
+    workflow.add_conditional_edges(
+        "route",
+        route_after_classify,
+        {
+            "parse": "parse",
+            "execute_followup": "execute_followup",
+            "synthesize_followup": "synthesize_followup",
+        },
+    )
+
+    # Original pipeline edges
     workflow.add_edge("parse", "execute")
     workflow.add_edge("execute", "synthesize")
     workflow.add_edge("synthesize", END)
+
+    # Follow-up pipeline edges
+    workflow.add_edge("execute_followup", "synthesize_followup")
+    workflow.add_edge("synthesize_followup", END)
 
     return workflow.compile()
 
@@ -279,6 +471,8 @@ def get_manager_agent():
 async def run_manager_agent(
     query: str,
     progress_callback: Any | None = None,
+    prior_report: str | None = None,
+    prior_results: dict | None = None,
 ) -> dict:
     """
     Run the manager agent to orchestrate research.
@@ -286,12 +480,14 @@ async def run_manager_agent(
     Args:
         query: User's research query
         progress_callback: Optional callback function for progress updates
+        prior_report: Previous report markdown (enables follow-up routing)
+        prior_results: Previous agent results dict (enables context-only follow-ups)
 
     Returns:
         Dict with keys: final_report, companies, tickers, financial_results,
-        competitor_results, status.
+        competitor_results, market_intel_results, query_type, followup_agents.
     """
-    logger.info("manager_agent.run.start", query=query)
+    logger.info("manager_agent.run.start", query=query, has_prior=bool(prior_report))
     try:
         agent = get_manager_agent()
 
@@ -308,12 +504,18 @@ async def run_manager_agent(
             "final_report": "",
             "status": "started",
             "progress_callback": progress_callback,
+            # Follow-up context
+            "prior_report": prior_report,
+            "prior_results": prior_results,
+            "query_type": "",
+            "followup_agents": [],
+            "focused_task": "",
         }
 
         # Run the agent
         result = await agent.ainvoke(initial_state)
 
-        logger.info("manager_agent.run.end")
+        logger.info("manager_agent.run.end", query_type=result.get("query_type"))
         return {
             "final_report": result["final_report"],
             "companies": result.get("companies", []),
@@ -321,6 +523,8 @@ async def run_manager_agent(
             "financial_results": result.get("financial_results"),
             "competitor_results": result.get("competitor_results"),
             "market_intel_results": result.get("market_intel_results"),
+            "query_type": result.get("query_type", "new_research"),
+            "followup_agents": result.get("followup_agents", []),
         }
     except Exception as e:
         logger.error("manager_agent.run.error", error=str(e))
@@ -332,6 +536,8 @@ async def run_manager_agent(
             "financial_results": None,
             "competitor_results": None,
             "market_intel_results": None,
+            "query_type": "new_research",
+            "followup_agents": [],
         }
 
 
@@ -350,6 +556,8 @@ def extract_tool_call_summary(agent_output: dict) -> dict:
 def run_manager_agent_sync(
     query: str,
     progress_callback: Any | None = None,
+    prior_report: str | None = None,
+    prior_results: dict | None = None,
 ) -> str:
     """Synchronous wrapper for run_manager_agent."""
-    return asyncio.run(run_manager_agent(query, progress_callback))
+    return asyncio.run(run_manager_agent(query, progress_callback, prior_report, prior_results))

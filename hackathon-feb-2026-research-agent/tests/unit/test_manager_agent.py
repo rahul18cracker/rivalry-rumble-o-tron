@@ -1,5 +1,6 @@
 """Unit tests for manager agent — sub-agents and LLM mocked."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -202,3 +203,226 @@ class TestRunManagerAgent:
             assert "financial" in stages
             assert "market_intel" in stages
             assert "synthesize" in stages
+
+
+@pytest.mark.unit
+class TestFollowUpRouting:
+    """Tests for the follow-up routing path through the manager graph."""
+
+    @pytest.mark.asyncio
+    async def test_no_prior_report_runs_full_pipeline(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent, mock_llm
+    ):
+        """When prior_report is None, the full pipeline runs (existing behavior)."""
+        # mock_llm returns valid JSON for parse, then text for route (but route won't call LLM
+        # since prior_report is None)
+        mock_llm.invoke.return_value.content = (
+            '{"companies": ["DataDog", "Dynatrace"], "tickers": ["DDOG", "DT"], "focus": "observability"}'
+        )
+
+        with (
+            patch("src.agents.manager.get_config") as mock_cfg,
+            patch("src.agents.manager.ChatAnthropic", return_value=mock_llm),
+        ):
+            mock_cfg.return_value.model_name = "test"
+            mock_cfg.return_value.model_temperature = 0.0
+            mock_cfg.return_value.anthropic_api_key = "test-key"
+
+            import src.agents.manager as mgr_mod
+
+            mgr_mod._manager_agent = None
+
+            from src.agents.manager import run_manager_agent
+
+            result = await run_manager_agent("Compare DataDog to Dynatrace", prior_report=None)
+
+            assert "final_report" in result
+            assert result["query_type"] == "new_research"
+            # All 3 sub-agents should have been called
+            mock_run_financial_agent.assert_called_once()
+            mock_run_competitor_agent.assert_called_once()
+            mock_run_market_intel_agent.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_followup_with_agents_runs_selected_agents(
+        self,
+        mock_run_financial_agent,
+        mock_run_competitor_agent,
+        mock_run_market_intel_agent,
+        mock_prior_report,
+        mock_prior_results,
+    ):
+        """Follow-up routed to followup_with_agents only runs the needed agents."""
+        mock_llm = MagicMock()
+        # First call: route_query classification
+        route_response = MagicMock()
+        route_response.content = json.dumps(
+            {
+                "query_type": "followup_with_agents",
+                "agents_needed": ["financial"],
+                "focused_task": "Get latest revenue data",
+                "reasoning": "Financial question",
+            }
+        )
+        # Second call: synthesize_followup
+        synth_response = MagicMock()
+        synth_response.content = "DataDog has higher revenue growth due to cloud adoption."
+
+        mock_llm.invoke.side_effect = [route_response, synth_response]
+
+        with (
+            patch("src.agents.manager.get_config") as mock_cfg,
+            patch("src.agents.manager.ChatAnthropic", return_value=mock_llm),
+        ):
+            mock_cfg.return_value.model_name = "test"
+            mock_cfg.return_value.model_temperature = 0.0
+            mock_cfg.return_value.anthropic_api_key = "test-key"
+
+            import src.agents.manager as mgr_mod
+
+            mgr_mod._manager_agent = None
+
+            from src.agents.manager import run_manager_agent
+
+            result = await run_manager_agent(
+                "Why does DataDog have higher revenue growth?",
+                prior_report=mock_prior_report,
+                prior_results=mock_prior_results,
+            )
+
+            assert result["query_type"] == "followup_with_agents"
+            assert "financial" in result["followup_agents"]
+            # Only financial agent should have been called
+            mock_run_financial_agent.assert_called_once()
+            # Competitor and market_intel should NOT have been called
+            mock_run_competitor_agent.assert_not_called()
+            mock_run_market_intel_agent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_followup_context_only_skips_all_agents(
+        self,
+        mock_run_financial_agent,
+        mock_run_competitor_agent,
+        mock_run_market_intel_agent,
+        mock_prior_report,
+        mock_prior_results,
+    ):
+        """Context-only follow-up doesn't re-run any agents."""
+        mock_llm = MagicMock()
+        # First call: route_query classification
+        route_response = MagicMock()
+        route_response.content = json.dumps(
+            {
+                "query_type": "followup_context_only",
+                "agents_needed": [],
+                "focused_task": "Extract pricing info",
+                "reasoning": "Already in report",
+            }
+        )
+        # Second call: synthesize_followup
+        synth_response = MagicMock()
+        synth_response.content = "Based on the report, DataDog uses consumption-based pricing."
+
+        mock_llm.invoke.side_effect = [route_response, synth_response]
+
+        with (
+            patch("src.agents.manager.get_config") as mock_cfg,
+            patch("src.agents.manager.ChatAnthropic", return_value=mock_llm),
+        ):
+            mock_cfg.return_value.model_name = "test"
+            mock_cfg.return_value.model_temperature = 0.0
+            mock_cfg.return_value.anthropic_api_key = "test-key"
+
+            import src.agents.manager as mgr_mod
+
+            mgr_mod._manager_agent = None
+
+            from src.agents.manager import run_manager_agent
+
+            result = await run_manager_agent(
+                "What did you find about pricing?",
+                prior_report=mock_prior_report,
+                prior_results=mock_prior_results,
+            )
+
+            assert result["query_type"] == "followup_context_only"
+            # No agents should have been called
+            mock_run_financial_agent.assert_not_called()
+            mock_run_competitor_agent.assert_not_called()
+            mock_run_market_intel_agent.assert_not_called()
+            assert "pricing" in result["final_report"].lower()
+
+    @pytest.mark.asyncio
+    async def test_route_error_falls_back_to_full_pipeline(
+        self,
+        mock_run_financial_agent,
+        mock_run_competitor_agent,
+        mock_run_market_intel_agent,
+        mock_prior_report,
+        mock_prior_results,
+    ):
+        """If route_query classification fails, it falls back to new_research (full pipeline)."""
+        mock_llm = MagicMock()
+        # First call: route_query gets invalid JSON → falls back to new_research
+        route_response = MagicMock()
+        route_response.content = "I cannot classify this"
+        # Second call: parse_request
+        parse_response = MagicMock()
+        parse_response.content = '{"companies": ["DataDog", "Dynatrace"], "tickers": ["DDOG", "DT"], "focus": "test"}'
+        # Third call: synthesize
+        synth_response = MagicMock()
+        synth_response.content = "Full report content"
+
+        mock_llm.invoke.side_effect = [route_response, parse_response, synth_response]
+
+        with (
+            patch("src.agents.manager.get_config") as mock_cfg,
+            patch("src.agents.manager.ChatAnthropic", return_value=mock_llm),
+        ):
+            mock_cfg.return_value.model_name = "test"
+            mock_cfg.return_value.model_temperature = 0.0
+            mock_cfg.return_value.anthropic_api_key = "test-key"
+
+            import src.agents.manager as mgr_mod
+
+            mgr_mod._manager_agent = None
+
+            from src.agents.manager import run_manager_agent
+
+            result = await run_manager_agent(
+                "Tell me more",
+                prior_report=mock_prior_report,
+                prior_results=mock_prior_results,
+            )
+
+            # Should fall back to full pipeline
+            assert result["query_type"] == "new_research"
+            assert "final_report" in result
+
+    @pytest.mark.asyncio
+    async def test_followup_progress_callback_includes_route_stage(
+        self, mock_run_financial_agent, mock_run_competitor_agent, mock_run_market_intel_agent
+    ):
+        """Progress callback fires 'route' stage for all queries."""
+        callback = MagicMock()
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value.content = '{"companies": ["DataDog"], "tickers": ["DDOG"], "focus": "test"}'
+
+        with (
+            patch("src.agents.manager.get_config") as mock_cfg,
+            patch("src.agents.manager.ChatAnthropic", return_value=mock_llm),
+        ):
+            mock_cfg.return_value.model_name = "test"
+            mock_cfg.return_value.model_temperature = 0.0
+            mock_cfg.return_value.anthropic_api_key = "test-key"
+
+            import src.agents.manager as mgr_mod
+
+            mgr_mod._manager_agent = None
+
+            from src.agents.manager import run_manager_agent
+
+            await run_manager_agent("Compare DataDog to Dynatrace", progress_callback=callback)
+
+            stages = {call.args[0]["stage"] for call in callback.call_args_list}
+            assert "route" in stages

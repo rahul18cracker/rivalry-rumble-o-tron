@@ -11,6 +11,62 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 # ---------------------------------------------------------------------------
+# Follow-up context fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def mock_prior_report():
+    """Sample prior report markdown for follow-up tests."""
+    return """# Competitive Analysis: DataDog vs Dynatrace
+
+## Financial Summary
+DataDog (DDOG) has 25% revenue growth and $2.1B TTM revenue.
+Dynatrace (DT) has 20% revenue growth and $1.4B TTM revenue.
+
+## Competitive Positioning
+DataDog offers a unified observability platform with 20+ integrations.
+Dynatrace focuses on AI-powered full-stack observability.
+
+## Market Intelligence
+The observability market is estimated at $20B, growing at 12% CAGR.
+"""
+
+
+@pytest.fixture
+def mock_prior_results():
+    """Dict matching last_report_context structure for follow-up tests."""
+    return {
+        "companies": ["DataDog", "Dynatrace"],
+        "tickers": ["DDOG", "DT"],
+        "financial_results": {
+            "response": "DataDog revenue $2.1B, Dynatrace $1.4B",
+            "message_count": 5,
+            "tickers": ["DDOG", "DT"],
+        },
+        "competitor_results": {
+            "response": "DataDog unified platform, Dynatrace AI-powered",
+            "message_count": 7,
+            "companies": ["DataDog", "Dynatrace"],
+        },
+        "market_intel_results": {
+            "response": "Observability market $20B, 12% CAGR",
+            "message_count": 9,
+            "companies": ["DataDog", "Dynatrace"],
+        },
+    }
+
+
+@pytest.fixture
+def mock_route_response():
+    """Sample classification JSON from route_query."""
+    return {
+        "query_type": "followup_with_agents",
+        "agents_needed": ["financial"],
+        "focused_task": "Get updated revenue growth data",
+        "reasoning": "User wants financial details",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Autouse: reset agent/client singletons between tests
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)

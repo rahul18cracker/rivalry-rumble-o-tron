@@ -9,20 +9,32 @@ Compare Cisco's observability portfolio (Splunk, AppDynamics) to DataDog and Dyn
 ## Architecture
 
 ```
-                         USER INPUT
-                             │
-                             ▼
-                      MANAGER AGENT
-                   (parses, delegates, synthesizes)
-                             │
-            ┌────────────────┴────────────────┐
-            ▼                                 ▼
-    FINANCIAL AGENT                  COMPETITOR AGENT
-    (yfinance)                       (Tavily search)
-            │                                 │
-            └────────────────┬────────────────┘
-                             ▼
-                     SYNTHESIZED REPORT
+                              USER INPUT
+                                  │
+                                  ▼
+                           ┌─────────────┐
+                           │    ROUTE    │  ← classifies query type
+                           └──────┬──────┘
+                                  │
+              ┌───────────────────┼───────────────────┐
+              │                   │                   │
+       new_research      followup_with_agents  followup_context_only
+              │                   │                   │
+              ▼                   ▼                   │
+         ┌────────┐     ┌────────────────┐           │
+         │ PARSE  │     │ EXECUTE SUBSET │           │
+         └───┬────┘     │ (selected only)│           │
+              │          └───────┬────────┘           │
+    ┌─────────┼─────────┐       │                    │
+    ▼         ▼         ▼       ▼                    ▼
+FINANCIAL COMPETITOR MARKET   SYNTHESIZE       SYNTHESIZE
+ AGENT     AGENT    INTEL    FOLLOW-UP        FOLLOW-UP
+(yfinance) (Tavily) (Tavily)  (focused)    (from cached context)
+    │         │       │         │                    │
+    └─────────┼───────┘         │                    │
+              ▼                 ▼                    ▼
+       FULL REPORT      CONVERSATIONAL        CONVERSATIONAL
+                          RESPONSE              RESPONSE
 ```
 
 ## Quick Start
@@ -81,24 +93,41 @@ print(f'Found {len(r[\"results\"])} results')"
 
 ```
 src/
-├── agents/           # Agent implementations
-│   ├── manager.py    # Orchestrator agent
-│   ├── financial.py  # Financial analysis agent
-│   └── competitor.py # Competitor research agent
-├── tools/            # Data source integrations
+├── agents/              # Agent implementations
+│   ├── manager.py       # Orchestrator with route node (new/followup routing)
+│   ├── followup.py      # Follow-up routing, task building, synthesis
+│   ├── financial.py     # Financial analysis agent (yfinance)
+│   ├── competitor.py    # Competitor research agent (Tavily)
+│   └── market_intel.py  # Market intelligence agent (Tavily)
+├── tools/               # Data source integrations
 │   ├── yfinance_tools.py
 │   └── tavily_tools.py
-├── prompts/          # Agent system prompts
-├── report/           # Report generation
-├── config.py         # Configuration
-└── main.py           # Entry point
+├── prompts/             # Agent system prompts
+│   ├── manager_prompt.py
+│   ├── financial_prompt.py
+│   ├── competitor_prompt.py
+│   ├── market_intel_prompt.py
+│   └── followup_prompt.py   # Route, synthesis, and task templates
+├── report/              # Report generation
+│   ├── generator.py
+│   └── decision_tree.py
+├── utils/
+│   └── retry.py         # Retry with backoff (tenacity)
+├── config.py            # Configuration
+├── errors.py            # Custom exceptions
+├── logging_config.py    # structlog JSON logging
+└── main.py              # Entry point
 
 ui/
-└── app.py            # Streamlit interface
+└── app.py               # Streamlit interface (with follow-up support)
 
 tests/
-├── test_tools.py
-└── test_agents.py
+├── conftest.py          # Shared fixtures
+├── unit/                # 126 unit tests
+│   ├── test_followup.py       # Follow-up routing tests
+│   ├── test_manager_agent.py  # Manager + follow-up path tests
+│   └── ...
+└── integration/         # 5 pipeline tests
 ```
 
 ## Tech Stack

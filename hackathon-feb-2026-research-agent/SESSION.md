@@ -1,8 +1,18 @@
 # Rivalry Rumble-o-Tron - Session Context
 
-## Last Session: 2026-02-20 (Session 5 — Retry with Backoff + LangSmith Tracing)
+## Last Session: 2026-03-02 (Session 6 — Interactive Follow-Up Questions)
 
 ### What Was Accomplished
+
+1. **Follow-Up Routing System** — Created `src/agents/followup.py` with `route_query()`, `build_focused_task()`, and `synthesize_followup()`. The manager agent now classifies every user message as `new_research`, `followup_with_agents`, or `followup_context_only` via an LLM classification step.
+2. **Follow-Up Prompt Templates** — Created `src/prompts/followup_prompt.py` with 3 templates: `ROUTE_QUERY_PROMPT` (query classification), `FOLLOWUP_SYNTHESIS_PROMPT` (conversational answer generation), `FOLLOWUP_AGENT_TASK_TEMPLATE` (context-enriched sub-agent tasks).
+3. **Manager Graph Restructuring** — Added `route` node as new entry point with conditional edges. Extended `ManagerState` with `prior_report`, `prior_results`, `query_type`, `followup_agents`, `focused_task` fields. Added `execute_followup_tasks` and `synthesize_followup_response` nodes.
+4. **UI Follow-Up Support** — Updated `ui/app.py` with `last_report_context` session state, dynamic pipeline stages based on routing, and follow-up metadata display in chat history.
+5. **22 Follow-Up Unit Tests** — `tests/unit/test_followup.py` covering route classification, fallback behavior, task building, and synthesis. 5 additional manager tests for follow-up paths.
+6. **Updated Exports** — `src/prompts/__init__.py` and `src/agents/__init__.py` updated with new module exports.
+7. **Total: 126 tests, 77% coverage.** All passing. Lint clean.
+
+### Previous Session: 2026-02-20 (Session 5 — Retry with Backoff + LangSmith Tracing)
 
 1. **Retry with Exponential Backoff** — Created `src/utils/retry.py` with a `retry_transient()` decorator using tenacity. Retries `ConnectionError`, `TimeoutError`, `OSError` up to 3 times with exponential backoff (1–10s). Does NOT retry permanent errors (`ValueError`, `KeyError`, `TypeError`).
 2. **Tool Function Refactoring** — Extracted API call logic from `@tool`-decorated functions into inner helpers (`_fetch_financials`, `_fetch_historical`, `_search_company`, `_search_competitive`, `_search_product`, `_search_trends`) wrapped with `@retry_transient()`. The `@tool` wrappers handle input validation and error dict fallback.
@@ -24,6 +34,7 @@
 - **2026-02-17 (Session 2)**: Rebranded to "Rivalry Rumble-o-Tron", example query cards, funky quips, Behind the Scenes expander, parallel agent execution
 - **2026-02-17 (Session 3)**: Decision tree visualization, tool call extraction, observability roadmap
 - **2026-02-20 (Session 4)**: Error handling, structured logging, 80 tests, CI pipeline
+- **2026-02-20 (Session 5)**: Retry with backoff, LangSmith tracing, CI workflow fix
 
 ### Validation Results
 
@@ -46,9 +57,12 @@
 | Structured Logging | ✅ | structlog JSON across all modules |
 | Retry with Backoff | ✅ | tenacity on all tool API calls |
 | LangSmith Tracing | ✅ | Optional, env-var driven, zero agent changes |
-| Unit Tests | ✅ | 94 tests, all mocked, no API keys needed |
+| Follow-Up Routing | ✅ | LLM classifies new_research / followup_with_agents / followup_context_only |
+| Follow-Up Synthesis | ✅ | Conversational responses from cached + new agent data |
+| Market Intel Agent | ✅ | 3rd sub-agent for market trends and analyst sentiment |
+| Unit Tests | ✅ | 126 tests, all mocked, no API keys needed |
 | Integration Tests | ✅ | 5 pipeline tests (happy + failure paths) |
-| Coverage | ✅ | 81% (threshold: 70%) |
+| Coverage | ✅ | 77% (threshold: 70%) |
 | Lint | ✅ | ruff check + format clean |
 | CI Pipeline | ✅ | GitHub Actions at repo root, lint + test on 3.11/3.12 |
 
@@ -85,8 +99,9 @@ streamlit run ui/app.py
 9. [x] Retry with exponential backoff on transient API failures
 10. [x] LangSmith tracing support (optional, env-var driven)
 11. [ ] Add caching for API responses
-12. [ ] Consider adding Market Intelligence agent (3rd sub-agent)
-13. [ ] Production observability (cost tracking, quality scoring — see post-hackathon-roadmap.md)
+12. [x] Add Market Intelligence agent (3rd sub-agent)
+13. [x] Interactive follow-up questions (conversational routing via manager)
+14. [ ] Production observability (cost tracking, quality scoring — see post-hackathon-roadmap.md)
 
 ### Git Log
 
@@ -120,42 +135,51 @@ afeb679 Add session context and update debug guides with learnings
 hackathon-feb-2026-research-agent/
 ├── src/
 │   ├── agents/
-│   │   ├── manager.py      # Orchestrator (error handling, timeout, partial failures)
-│   │   ├── financial.py    # yfinance tools (Number Cruncher)
-│   │   └── competitor.py   # Tavily tools (Street Scout)
+│   │   ├── manager.py        # Orchestrator with route node (new/followup routing)
+│   │   ├── followup.py       # Follow-up routing, task building, synthesis
+│   │   ├── financial.py      # yfinance tools (Number Cruncher)
+│   │   ├── competitor.py     # Tavily tools (Street Scout)
+│   │   └── market_intel.py   # Tavily tools (Market Intel)
 │   ├── tools/
-│   │   ├── yfinance_tools.py  # Input validation, retry, logging
-│   │   └── tavily_tools.py    # Input validation, retry, logging
+│   │   ├── yfinance_tools.py    # Input validation, retry, logging
+│   │   └── tavily_tools.py      # Input validation, retry, logging
 │   ├── utils/
-│   │   └── retry.py           # retry_transient() decorator (tenacity)
+│   │   └── retry.py             # retry_transient() decorator (tenacity)
 │   ├── prompts/
+│   │   ├── manager_prompt.py
+│   │   ├── financial_prompt.py
+│   │   ├── competitor_prompt.py
+│   │   ├── market_intel_prompt.py
+│   │   └── followup_prompt.py   # Route, synthesis, and task templates
 │   ├── report/
-│   │   ├── generator.py       # LLM synthesis with fallback
-│   │   └── decision_tree.py   # Text tree for Behind the Scenes
-│   ├── config.py              # Config, API keys, LangSmith tracing
-│   ├── errors.py              # Custom exception hierarchy
-│   ├── logging_config.py      # structlog JSON configuration
+│   │   ├── generator.py         # LLM synthesis with fallback
+│   │   └── decision_tree.py     # Text tree for Behind the Scenes
+│   ├── config.py                # Config, API keys, LangSmith tracing
+│   ├── errors.py                # Custom exception hierarchy
+│   ├── logging_config.py        # structlog JSON configuration
 │   └── main.py
 ├── ui/
-│   └── app.py              # Streamlit UI (Rivalry Rumble-o-Tron)
+│   └── app.py                # Streamlit UI with follow-up context passing
 ├── tests/
-│   ├── conftest.py         # Shared fixtures, singleton reset
-│   ├── unit/               # 94 unit tests (all mocked)
-│   │   ├── test_retry.py          # Retry decorator tests
-│   │   ├── test_config.py         # Config + LangSmith tracing tests
-│   │   ├── test_yfinance_tools.py # Including retry behavior
-│   │   ├── test_tavily_tools.py   # Including retry behavior
+│   ├── conftest.py           # Shared fixtures, singleton reset
+│   ├── unit/                 # 126 unit tests (all mocked)
+│   │   ├── test_followup.py         # Follow-up routing tests (22 tests)
+│   │   ├── test_manager_agent.py    # Manager + follow-up path tests
+│   │   ├── test_retry.py            # Retry decorator tests
+│   │   ├── test_config.py           # Config + LangSmith tracing tests
+│   │   ├── test_yfinance_tools.py   # Including retry behavior
+│   │   ├── test_tavily_tools.py     # Including retry behavior
 │   │   └── ...
-│   └── integration/        # 5 pipeline tests
+│   └── integration/          # 5 pipeline tests
 ├── docs/
 │   ├── hackathon-plan.md
 │   ├── post-hackathon-roadmap.md
-│   └── skills-learned.md   # 20 technical learnings
+│   └── skills-learned.md     # 21 technical learnings
 ├── venv/
-├── pyproject.toml          # tenacity, dev deps, pytest markers, ruff config
-├── .env                    # API keys (not committed)
-├── .env.example            # Documented env vars including LangSmith
-└── CLAUDE.md               # Project context for AI assistants
+├── pyproject.toml            # tenacity, dev deps, pytest markers, ruff config
+├── .env                      # API keys (not committed)
+├── .env.example              # Documented env vars including LangSmith
+└── CLAUDE.md                 # Project context for AI assistants
 ```
 
 Note: `.github/workflows/ci.yml` is at the **git repo root** (`/ai/.github/workflows/ci.yml`), NOT inside the project subdirectory. This is required for GitHub Actions to discover it.
